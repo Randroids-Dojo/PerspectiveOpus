@@ -404,18 +404,7 @@ export class Director {
     s.el.classList.add('out');
     setTimeout(() => s.el.remove(), 260);
     const top = this.stack[this.stack.length - 1];
-    if (top) {
-      top.el.classList.remove('under');
-      // Rebuild the title so Continue reflects new progress.
-      if (this.state === 'title' && this.stack.length === 1) {
-        this.stack.pop();
-        top.el.remove();
-        const t = this.makeTitle();
-        this.stack.push(t);
-        this.layer.append(t.el);
-        t.el.classList.add('in');
-      }
-    }
+    if (top) top.el.classList.remove('under');
   }
 
   private clearScreens(): void {

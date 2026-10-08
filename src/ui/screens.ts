@@ -14,6 +14,13 @@ export interface Screen {
   cls?: string;
 }
 
+/** Tapping the dimmed area around a card closes it. */
+function closeOnScrim(el: HTMLElement, close: () => void): void {
+  el.addEventListener('click', (e) => {
+    if (e.target === el) close();
+  });
+}
+
 function menuScreen(cls: string, top: Node[], menu: Menu, bottom: Node[] = []): Screen {
   const el = h('div', { class: `screen ${cls}` }, ...top, menu.el, ...bottom);
   return { el, nav: (a) => menu.nav(a) };
@@ -123,6 +130,7 @@ export function programmeScreen(opts: { save: SaveData; hooks: MenuHooks; onPlay
   );
   const card = h('div', { class: 'card programme' }, head, menu.el);
   const el = h('div', { class: 'screen programme-screen' }, card);
+  closeOnScrim(el, opts.onBack);
   return { el, nav: (a) => (a === 'back' ? (opts.onBack(), true) : menu.nav(a)) };
 }
 
@@ -203,6 +211,7 @@ export function settingsScreen(opts: {
   const menu = new Menu(items, opts.hooks, 'settings-menu');
   const card = h('div', { class: 'card settings' }, h('header', { class: 'card-head' }, h('h2', {}, 'Settings')), menu.el);
   const el = h('div', { class: 'screen settings-screen' }, card);
+  closeOnScrim(el, opts.onBack);
   return { el, nav: (a) => (a === 'back' ? (opts.onBack(), true) : menu.nav(a)) };
 }
 
@@ -231,6 +240,7 @@ export function controlsScreen(opts: { hooks: MenuHooks; onBack: () => void }): 
   const menu = new Menu([{ id: 'back', label: 'Back', select: opts.onBack, cls: 'menu-back' }], opts.hooks);
   const card = h('div', { class: 'card controls-card' }, h('header', { class: 'card-head' }, h('h2', {}, 'Controls')), table, menu.el);
   const el = h('div', { class: 'screen settings-screen' }, card);
+  closeOnScrim(el, opts.onBack);
   return { el, nav: (a) => (a === 'back' ? (opts.onBack(), true) : menu.nav(a)) };
 }
 
@@ -268,6 +278,7 @@ export function pauseScreen(opts: {
   );
   const card = h('div', { class: 'card pause' }, head, menu.el);
   const el = h('div', { class: 'screen pause-screen' }, card);
+  closeOnScrim(el, opts.onResume);
   return { el, nav: (a) => (a === 'back' || a === 'pause' ? (opts.onResume(), true) : menu.nav(a)) };
 }
 
@@ -349,5 +360,6 @@ export function creditsScreen(opts: { hooks: MenuHooks; onBack: () => void; tota
   );
   const card = h('div', { class: 'card credits' }, roll, menu.el);
   const el = h('div', { class: 'screen credits-screen' }, card);
+  closeOnScrim(el, opts.onBack);
   return { el, nav: (a) => (a === 'back' ? (opts.onBack(), true) : menu.nav(a)) };
 }

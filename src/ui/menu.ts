@@ -91,6 +91,7 @@ export class Menu {
     if (!this.buttons.length) return;
     this.index = Math.max(0, Math.min(this.buttons.length - 1, i));
     this.buttons.forEach((b, j) => b.classList.toggle('focused', j === this.index));
+    if (this.el.isConnected) this.buttons[this.index].scrollIntoView({ block: 'nearest' });
     if (sound) this.hooks.hover?.();
   }
 
