@@ -1,6 +1,6 @@
 import { NO_DEPTH } from '../game/level';
 import { MAT, MAT_NAMES, type MatName } from '../game/types';
-import { css, mix, type RGB } from './color';
+import { css, mix, rgb, type RGB } from './color';
 import { anchorAll, type Env, type Proj } from './env';
 import { blobPath, curvePts, linePts, markLine, ribbonPath } from './ink';
 import { drawDecor } from './decor';
@@ -924,8 +924,12 @@ function carpetCap(band: Path2D, trim: Path2D, pile: Path2D, p: Proj, x: number,
 
 // ---------------------------------------------------------------- thorns
 
-/** A bramble of thorny stems with vermilion tips, filling one cell. */
+/** A bramble of thorny stems with vermilion tips, filling one cell (a spiked cog in the clocktower). */
 export function drawThorn(pen: Pen, x: number, y: number): void {
+  if (pen.env.tones.pal.id === 'clock') {
+    drawCogThorn(pen, x, y);
+    return;
+  }
   const { ctx, p, L, env } = pen;
   const T = env.tones;
   const stems = new Path2D();
@@ -954,7 +958,7 @@ export function drawThorn(pen: Pen, x: number, y: number): void {
       tx /= l;
       ty /= l;
       const sd = (i / every) % 2 === 0 ? 1 : -1;
-      const len = p.k * (0.1 + hash(seed, s, i) * 0.06);
+      const len = p.k * (0.12 + hash(seed, s, i) * 0.07);
       const nx = -ty * sd;
       const ny = tx * sd;
       const bw = p.k * 0.035;
@@ -964,8 +968,8 @@ export function drawThorn(pen: Pen, x: number, y: number): void {
       spikes.lineTo(tipX, tipY);
       spikes.lineTo(ax + tx * bw, ay + ty * bw);
       spikes.closePath();
-      if (hash(seed, s, i, 9) < 0.6) {
-        const r = Math.max(0.9, p.k * 0.022);
+      if (hash(seed, s, i, 9) < 0.85) {
+        const r = Math.max(1, p.k * 0.026);
         tips.moveTo(tipX + r, tipY);
         tips.arc(tipX, tipY, r, 0, Math.PI * 2);
       }
@@ -984,5 +988,92 @@ export function drawThorn(pen: Pen, x: number, y: number): void {
   ctx.fill(spikes);
   ctx.fillStyle = css(mix(T.rubric, L.tone, 0.35 * L.k));
   ctx.fill(tips);
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * The clocktower's hazard: a brass wheel whose teeth are filed into vermilion spikes,
+ * with a dark hub and spoke windows. Each cell turns its cog to its own angle.
+ */
+function drawCogThorn(pen: Pen, x: number, y: number): void {
+  const { ctx, p, L, env } = pen;
+  const T = env.tones;
+  const lv = env.world.lv;
+  // Only the front-most cog of a cell is drawn; the ones behind it would only blur its spikes.
+  if (pen.z > 0 && lv.cells[x + lv.w * (y + lv.h * (pen.z - 1))] === MAT.thorn) return;
+  const seed = x * 7919 + y * 104729 + pen.z * 31;
+  const cx = p.ox + (x + 0.5) * p.k;
+  const cy = p.oy - (y + 0.47) * p.k;
+  const n = 8;
+  const rTip = p.k * (0.49 - 0.03 * hash(seed, 1));
+  const rBody = p.k * 0.29;
+  const rRoot = rBody * 0.97;
+  const rot = hash(seed, 2) * Math.PI * 2;
+  const half = (Math.PI / n) * 0.56;
+  const body = new Path2D();
+  let q = 0;
+  const wob = () => 1 + hs(seed, ++q, pen.variant) * 0.025;
+  for (let i = 0; i < n; i++) {
+    const a = rot + (i / n) * Math.PI * 2;
+    const a0 = a - half;
+    const a1 = a + half;
+    const am = a + Math.PI / n;
+    const rt = rTip * wob();
+    if (i === 0) body.moveTo(cx + Math.cos(a0) * rBody, cy + Math.sin(a0) * rBody);
+    else body.lineTo(cx + Math.cos(a0) * rBody, cy + Math.sin(a0) * rBody);
+    body.lineTo(cx + Math.cos(a) * rt, cy + Math.sin(a) * rt);
+    body.lineTo(cx + Math.cos(a1) * rBody, cy + Math.sin(a1) * rBody);
+    body.lineTo(cx + Math.cos(am) * rRoot, cy + Math.sin(am) * rRoot);
+  }
+  body.closePath();
+  const brassBase = mix(rgb(T.pal.mats.brass.color), [255, 236, 170], T.inv ? 0 : 0.08);
+  const brass = mix(mix(brassBase, L.tone, 0.15 + 0.45 * L.k), T.paper, 0.3 * L.k);
+  // A brass wheel whose teeth are filed into vermilion spikes.
+  ctx.fillStyle = css(mix(mix(T.rubric, [236, 96, 60], 0.2), L.tone, 0.4 * L.k));
+  ctx.globalAlpha = 0.97;
+  ctx.fill(body);
+  const wheel = new Path2D();
+  wheel.arc(cx, cy, rRoot, 0, Math.PI * 2);
+  ctx.fillStyle = css(brass);
+  ctx.fill(wheel);
+  // Shade the lower right of the wheel with hatching.
+  ctx.save();
+  ctx.clip(wheel);
+  ctx.beginPath();
+  ctx.arc(cx + p.k * 0.14, cy + p.k * 0.14, p.k * 0.26, 0, Math.PI * 2);
+  ctx.fillStyle = env.pats.hatch;
+  ctx.globalAlpha = 0.55 + 0.3 * (1 - L.k);
+  ctx.fill();
+  ctx.restore();
+  const ink = css(mix(T.ink, L.inkRGB, 0.6));
+  ctx.strokeStyle = ink;
+  ctx.lineJoin = 'miter';
+  ctx.lineWidth = Math.max(1, L.outlineW * p.px * 0.6);
+  ctx.globalAlpha = 0.92;
+  ctx.stroke(body);
+  ctx.lineJoin = 'round';
+  // Hub ring, spoke windows and the axle.
+  const hub = new Path2D();
+  hub.arc(cx, cy, p.k * 0.17, 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(0.8, L.outlineW * p.px * 0.45);
+  ctx.stroke(hub);
+  const holes = new Path2D();
+  for (let i = 0; i < 5; i++) {
+    const a = rot * 1.7 + (i / 5) * Math.PI * 2;
+    const hx = cx + Math.cos(a) * p.k * 0.17;
+    const hy = cy + Math.sin(a) * p.k * 0.17;
+    holes.moveTo(hx + p.k * 0.035, hy);
+    holes.arc(hx, hy, p.k * 0.035, 0, Math.PI * 2);
+  }
+  holes.moveTo(cx + p.k * 0.06, cy);
+  holes.arc(cx, cy, p.k * 0.06, 0, Math.PI * 2);
+  ctx.fillStyle = ink;
+  ctx.globalAlpha = 0.85;
+  ctx.fill(holes);
+  // A brass glint on the axle.
+  ctx.beginPath();
+  ctx.arc(cx - p.k * 0.02, cy - p.k * 0.02, Math.max(0.8, p.k * 0.022), 0, Math.PI * 2);
+  ctx.fillStyle = css(mix(brassBase, [255, 250, 230], 0.6));
+  ctx.fill();
   ctx.globalAlpha = 1;
 }

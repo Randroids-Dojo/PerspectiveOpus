@@ -103,13 +103,15 @@ export function collectEntities(out: Drawable[], game: Game, env: Env, frame: Fr
   // Piano keys.
   for (let i = 0; i < lv.keys.length; i++) {
     const k = lv.keys[i];
-    if (!inView(k.pos.x, k.pos.y - 0.2, k.pos.x + k.width, k.pos.y + 0.3)) continue;
+    if (!inView(k.pos.x, k.pos.y - 0.2, k.pos.x + k.width, k.pos.y + 0.5)) continue;
     out.push({
       z: k.pos.z + 0.02,
       x0: k.pos.x,
-      y0: k.pos.y - 0.1,
+      y0: k.pos.y - 0.15,
       x1: k.pos.x + k.width,
-      y1: k.pos.y + 0.25,
+      y1: k.pos.y + 0.45,
+      // The part above the floor, so the floor the key is set into does not paint over it.
+      core: { x0: k.pos.x + 0.15, y0: k.pos.y + 0.02, x1: k.pos.x + k.width - 0.15, y1: k.pos.y + 0.12 },
       draw: (ctx, p) => drawKey(ctx, p, env, game, i),
     });
   }
@@ -117,13 +119,13 @@ export function collectEntities(out: Drawable[], game: Game, env: Env, frame: Fr
   // Bodies: gates and moving platforms (drums are drawn above).
   for (const b of game.bodies) {
     if (b.kind === 'gate') {
-      if (!inView(b.min.x - 0.2, b.min.y, b.max.x + 0.2, b.max.y + 0.3)) continue;
+      if (!inView(b.min.x - 0.2, b.min.y, b.max.x + 0.2, b.max.y + 0.4)) continue;
       out.push({
         z: b.min.z,
         x0: b.min.x - 0.1,
-        y0: b.min.y,
+        y0: b.min.y - 0.05,
         x1: b.max.x + 0.1,
-        y1: b.max.y + 0.2,
+        y1: b.max.y + 0.35,
         draw: (ctx, p) => drawGate(ctx, p, env, game, b),
       });
     } else if (b.kind === 'platform') {
@@ -418,118 +420,370 @@ function drawDrum(ctx: CanvasRenderingContext2D, p: Proj, env: Env, x: number, y
 
 // ---------------------------------------------------------------- keys
 
+/**
+ * A piano key set into the floor, seen side on: an ivory cap with a rounded nose
+ * and lip, on an ebony key body that stands in a slot in the ground. The whole
+ * key sinks as it is pressed. The group's lozenge (the same mark its gates carry)
+ * is inked on the ivory and brightens, with a few radiating strokes, when it goes down.
+ */
 function drawKey(ctx: CanvasRenderingContext2D, p: Proj, env: Env, game: Game, i: number): void {
   const T = env.tones;
   const k = game.level.keys[i];
   const v = game.keyVis[i] ?? 0;
   const on = game.groups[k.group];
   sk.set(ctx, env, p, k.pos.x, k.pos.y, layerOf(env, k.pos.z), 1, 8009 + i * 23, p.boil);
-  sk.tintAmt = 0.6;
-  const ivory = T.inv ? rgb('#e8e4d6') : rgb('#f6efdc');
-  const top = 0.16 - v * 0.11;
+  sk.tintAmt = 0.4;
+  const w = k.width;
+  const ivory = T.inv ? rgb('#ece6d4') : rgb('#fbf3de');
+  const ebony = T.inv ? rgb('#11131f') : mix(T.ink, [12, 8, 10], 0.5);
   const gc = T.groupsRGB[k.group % T.groupsRGB.length];
-  const x0 = 0.05;
-  const x1 = k.width - 0.05;
-  sk.shape([x0, -0.02, x0, top, x1, top, x1, -0.02], sk.col(ivory), 0.85, { poly: true, misreg: false, ampM: 0.4 });
-  sk.shape([x0 + 0.04, top - 0.005, x0 + 0.04, top - 0.05, x1 - 0.04, top - 0.05, x1 - 0.04, top - 0.005], css(mix(gc, [255, 255, 255], on ? 0.1 : 0.35)), 0, { poly: true, misreg: false, outline: false, alpha: on ? 0.95 : 0.7 });
-  const divs: number[] = [];
-  for (let c = 1; c < k.width; c++) divs.push(c, -0.01, c, top - 0.01);
-  if (divs.length) sk.marks(divs, sk.inkColor(), 0.9, 0.7);
-  if (v > 0.05) sk.marks([x0, top + 0.02, x1, top + 0.02], sk.darker(ivory, 0.5), 1, 0.5 * v);
+  const top = 0.24 - v * 0.17;
+  const capH = 0.12;
+  const x0 = 0.1;
+  const x1 = w - 0.1;
+  // The slot, a dark keybed cut into the floor, and the ebony key body standing in it.
+  sk.shape([x0 - 0.04, -0.12, x0 - 0.04, 0.015, x1 + 0.04, 0.015, x1 + 0.04, -0.12], css(mix(ebony, T.shade, 0.3)), 0.55, { poly: true, misreg: false, ampM: 0.2 });
+  sk.shape([x0 + 0.03, -0.1, x0 + 0.03, top - capH + 0.01, x1 - 0.06, top - capH + 0.01, x1 - 0.06, -0.1], css(ebony), 0.5, { poly: true, misreg: false, ampM: 0.2 });
+  // The ivory cap: square at the back (left), a rounded nose and lip at the front (right).
+  const c0 = top - capH;
+  const cap = [x0, c0, x0, top, x1 - 0.06, top, x1 - 0.015, top - 0.02, x1, top - 0.055, x1 - 0.005, c0 + 0.02, x1 - 0.03, c0 - 0.01];
+  sk.shape(cap, sk.col(ivory), 0.75, { poly: true, misreg: false, ampM: 0.2 });
+  sk.marks([x0 + 0.04, top - 0.03, x1 - 0.08, top - 0.03], 'rgba(255,253,245,0.95)', 1.3, 0.9);
+  sk.marks([x0 + 0.02, c0 + 0.025, x1 - 0.05, c0 + 0.025], sk.darker(ivory, 0.3), 1.2, 0.55);
+  // The group mark on the ivory: muted at rest, full colour with rays when pressed or when its group is on.
+  const lit = Math.max(v, on ? 0.6 : 0);
+  const mv = top - capH / 2;
+  const mr = 0.055;
+  const mc = css(mix(mix(gc, ivory, 0.25), gc, lit));
+  sk.shape([w / 2, mv - mr, w / 2 + mr * 1.5, mv, w / 2, mv + mr, w / 2 - mr * 1.5, mv], mc, 0.45, { poly: true, misreg: false, ampM: 0.15 });
+  if (v > 0.05) {
+    const segs: number[] = [];
+    const n = 5;
+    for (let q = 0; q < n; q++) {
+      const a = Math.PI * (0.2 + (0.6 * q) / (n - 1));
+      const r0 = 0.22;
+      const r1 = 0.22 + 0.16 * v;
+      segs.push(w / 2 + Math.cos(a) * r0 * 1.6, top + Math.sin(a) * r0, w / 2 + Math.cos(a) * r1 * 1.6, top + Math.sin(a) * r1);
+    }
+    sk.marks(segs, css(gc), 1.4, 0.75 * v);
+  }
 }
 
 // ---------------------------------------------------------------- gates
 
+/**
+ * Gates come in three shapes, all gold leaf crossed by a five-line staff:
+ * upright grilles of spear-topped bars (taller than wide), gilded step blocks
+ * (wide and tall, the golden stairs) and planks (one cell tall, the bridges).
+ * A solid gate rises out of the floor (a plank inks itself across) as the key
+ * raises it; an open one is a faint dotted ghost.
+ */
 function drawGate(ctx: CanvasRenderingContext2D, p: Proj, env: Env, game: Game, b: Body): void {
-  const T = env.tones;
   const def = game.level.gates[b.id];
   const vis = game.gateVis[b.id] ?? (b.solid ? 1 : 0);
-  const gc = T.groups[def.group % T.groups.length];
-  const ink = T.layers[0].ink;
-  const X0 = p.ox + (b.min.x + 0.1) * p.k;
-  const X1 = p.ox + (b.max.x - 0.1) * p.k;
-  const Y0 = p.oy - b.min.y * p.k;
-  const Y1 = p.oy - (b.max.y - 0.05) * p.k;
-  const gold = css(mix(T.gold, T.goldLight, 0.15));
+  const w = b.max.x - b.min.x;
+  const h = b.max.y - b.min.y;
+  const shape = h <= 1.05 ? 'plank' : w >= 1.5 ? 'step' : 'bars';
   const t = game.time;
+  sk.set(ctx, env, p, b.min.x, b.min.y, layerOf(env, b.min.z), 1, 8501 + b.id * 29, p.boil);
+  sk.tintAmt = 0.3;
+  if (vis < 0.98) drawGateGhost(ctx, p, env, def.group, shape, w, h, 1 - vis, t);
+  if (vis <= 0.02) return;
+  // Ease the reveal so the last stretch settles rather than snaps.
+  const e = 1 - (1 - vis) * (1 - vis);
   ctx.save();
-  if (vis > 0.02) {
-    // A gilded, hatched panel so a closed gate reads as a barrier.
-    ctx.fillStyle = css(mix(T.gold, T.paper, 0.35), 0.4 * vis);
-    ctx.fillRect(X0, Y1, X1 - X0, Y0 - Y1);
-    ctx.fillStyle = env.pats.hatch;
-    ctx.globalAlpha = 0.45 * vis;
-    ctx.fillRect(X0, Y1, X1 - X0, Y0 - Y1);
-    ctx.globalAlpha = 1;
-  }
-  const rails: number[] = [];
-  const span = Y0 - Y1;
-  for (let r = 0; r < 5; r++) rails.push(Y1 + span * (0.1 + (0.8 * r) / 4));
-  const ext = 0.06 * p.k;
-  if (vis > 0.02) {
-    ctx.globalAlpha = vis;
-    ctx.beginPath();
-    for (const ry of rails) {
-      const w = Math.sin(t * 2.2 + ry * 0.05) * 0.5 * p.px;
-      ctx.moveTo(X0 - ext, ry + w);
-      ctx.lineTo(X1 + ext, ry - w);
-    }
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = Math.max(2.5, 4.6 * p.px);
-    ctx.stroke();
-    ctx.strokeStyle = gold;
-    ctx.lineWidth = Math.max(1.5, 2.8 * p.px);
-    ctx.stroke();
-    ctx.strokeStyle = css(T.goldLight);
-    ctx.lineWidth = Math.max(0.6, 0.9 * p.px);
-    ctx.globalAlpha = 0.8 * vis;
-    ctx.stroke();
-  }
   if (vis < 0.98) {
-    // Open: faint dotted ghosts of the rails.
-    ctx.globalAlpha = 0.6 * (1 - vis);
-    ctx.setLineDash([2.5 * p.px, 5 * p.px]);
-    ctx.lineDashOffset = -t * 6 * p.px;
     ctx.beginPath();
-    for (const ry of rails) {
-      ctx.moveTo(X0, ry);
-      ctx.lineTo(X1, ry);
-    }
-    ctx.strokeStyle = gold;
-    ctx.lineWidth = Math.max(1, 1.8 * p.px);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (shape === 'plank') ctx.rect(sk.X(-0.2), sk.Y(h + 0.4), sk.D(w * e + 0.2), sk.D(h + 0.6));
+    else ctx.rect(sk.X(-0.3), sk.Y(h * e + (shape === 'bars' ? 0.4 : 0.1)), sk.D(w + 0.6), sk.D(h * e + 0.6));
+    ctx.clip();
   }
-  // Posts as bar lines, with group-coloured finials.
-  ctx.globalAlpha = 0.3 + 0.7 * vis;
+  const g = solidGate(p, env, b, def.group, shape, w, h);
+  if (g) ctx.drawImage(g.canvas, g.x, g.y);
+  else {
+    sk.set(ctx, env, p, b.min.x, b.min.y, layerOf(env, b.min.z), 1, 8501 + b.id * 29, p.boil);
+    sk.tintAmt = 0.3;
+    drawGateShape(env, def.group, shape, w, h, b.id);
+  }
+  ctx.restore();
+}
+
+/**
+ * Solid gates are drawn once per boil drawing (three, as the cached page is) into a
+ * small canvas and stamped each frame, so a wall of gold costs a single image.
+ */
+const GATE_PAD = 0.4;
+const gateCanvases = new Map<string, HTMLCanvasElement>();
+let gateStamp = '';
+let gateEnv: Env | null = null;
+let pendingStamp = '';
+let pendingAt = 0;
+
+function drawGateShape(env: Env, group: number, shape: string, w: number, h: number, id: number): void {
+  if (shape === 'bars') drawGateBars(env, group, w, h, id);
+  else if (shape === 'step') drawGateStep(env, group, w, h, id);
+  else drawGatePlank(env, group, w, h, id);
+}
+
+/** The cached solid gate, or null while the page scale is still changing (drawn live then). */
+function solidGate(p: Proj, env: Env, b: Body, group: number, shape: string, w: number, h: number): { canvas: HTMLCanvasElement; x: number; y: number } | null {
+  const x = Math.floor(p.ox + (b.min.x - GATE_PAD) * p.k);
+  const y = Math.floor(p.oy - (b.max.y + GATE_PAD) * p.k);
+  // The page sits on a fixed device-pixel grid, so only the scale and the sub-pixel phase matter.
+  const fx = p.ox + (b.min.x - GATE_PAD) * p.k - x;
+  const fy = p.oy - (b.max.y + GATE_PAD) * p.k - y;
+  const stamp = `${p.k}|${p.px}|${p.dpr}`;
+  if (stamp !== gateStamp || env !== gateEnv) {
+    // Wait for the scale to settle (a zoom changes it every frame) before caching at it.
+    if (stamp !== pendingStamp || env !== gateEnv) {
+      pendingStamp = stamp;
+      pendingAt = env.now;
+      gateEnv = env;
+      gateCanvases.clear();
+    }
+    if (env.now - pendingAt < 0.15) return null;
+    gateStamp = stamp;
+  }
+  const v = ((p.boil % 3) + 3) % 3;
+  const key = `${b.id}|${v}|${fx.toFixed(2)}|${fy.toFixed(2)}`;
+  let canvas = gateCanvases.get(key);
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.width = Math.ceil((w + GATE_PAD * 2) * p.k) + 2;
+    canvas.height = Math.ceil((h + GATE_PAD * 2) * p.k) + 2;
+    const g = canvas.getContext('2d')!;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    const q: Proj = { ...p, ox: p.ox - x, oy: p.oy - y, boil: v };
+    sk.set(g, env, q, b.min.x, b.min.y, layerOf(env, b.min.z), 1, 8501 + b.id * 29, v);
+    sk.tintAmt = 0.3;
+    drawGateShape(env, group, shape, w, h, b.id);
+    gateCanvases.set(key, canvas);
+  }
+  return { canvas, x, y };
+}
+
+/** Positions of the five staff lines of a staff centred on `v`. */
+function staffLines(v: number, gap: number): number[] {
+  return [v - 2 * gap, v - gap, v, v + gap, v + 2 * gap];
+}
+
+/** Staff centres on a gate face: one per three cells of height on a grille, one under a step's tread. */
+function gateStaffs(shape: string, h: number): number[] {
+  if (shape === 'plank') return [h * 0.52];
+  if (shape === 'step') return [h - 0.48];
+  const n = Math.max(1, Math.round(h / 3));
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push((h * (i + 0.5)) / n);
+  return out;
+}
+
+/** A lozenge in the group colour (the mark the gate shares with its key). */
+function groupMark(env: Env, group: number, u: number, v: number, r: number): void {
+  const T = env.tones;
+  const gc = T.groupsRGB[group % T.groupsRGB.length];
+  sk.shape([u, v - r, u + r * 0.8, v, u, v + r, u - r * 0.8, v], css(gc), 0.6, { poly: true, misreg: false, ampM: 0.2 });
+  sk.dot(u - r * 0.2, v + r * 0.3, r * 0.22, 'rgba(255,250,236,0.85)');
+}
+
+/** Cracked gold leaf: a scatter of bright flecks inside a rectangle. */
+function goldFlecks(env: Env, u0: number, v0: number, u1: number, v1: number, n: number, seed: number): void {
+  const ctx = sk.ctx;
   ctx.beginPath();
-  ctx.moveTo(X0, Y0);
-  ctx.lineTo(X0, Y1);
-  ctx.moveTo(X1, Y0);
-  ctx.lineTo(X1, Y1);
-  if (vis < 0.5) ctx.setLineDash([3 * p.px, 4 * p.px]);
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = Math.max(2, 4 * p.px);
-  ctx.stroke();
+  for (let i = 0; i < n; i++) {
+    const x = sk.X(u0 + hash(seed, i, 1) * (u1 - u0));
+    const y = sk.Y(v0 + hash(seed, i, 2) * (v1 - v0));
+    const r = Math.max(0.6, sk.D(0.012 + hash(seed, i, 3) * 0.018));
+    ctx.moveTo(x + r, y);
+    ctx.arc(x, y, r, 0, TAU);
+  }
+  ctx.fillStyle = css(env.tones.goldLight);
+  ctx.globalAlpha = 0.85;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function gateGold(env: Env, dark = 0): string {
+  const T = env.tones;
+  return sk.col(mix(mix(T.gold, T.goldLight, 0.12), T.goldDark, dark));
+}
+
+/** An upright grille: spear-topped gilded bars between gold rails, crossed by staves. */
+function drawGateBars(env: Env, group: number, w: number, h: number, id: number): void {
+  const T = env.tones;
+  const ink = sk.inkColor();
+  const gold = gateGold(env);
+  const goldDim = gateGold(env, 0.3);
+  // A dark gilded ground between the bars so the grille reads as a wall, not a frame.
+  sk.region([0.08, 0.05, 0.08, h - 0.1, w - 0.08, h - 0.1, w - 0.08, 0.05], sk.col(mix(T.goldDark, T.gold, 0.35)), T.inv ? 0.5 : 0.42, true);
+  sk.region([0.08, 0.05, 0.08, h - 0.1, w - 0.08, h - 0.1, w - 0.08, 0.05], env.pats.cross, 0.55, true);
+  const nb = Math.max(3, Math.round(w * 4));
+  const bw = 0.075;
+  const top = h - 0.02;
+  for (let i = 0; i < nb; i++) {
+    const u = 0.14 + ((w - 0.28) * i) / (nb - 1);
+    sk.shape([u - bw / 2, 0, u - bw / 2, top, u + bw / 2, top, u + bw / 2, 0], gold, 0.55, { poly: true, misreg: false, ampM: 0.25 });
+    // Spear point above the top rail.
+    sk.shape([u - 0.075, top + 0.02, u, top + 0.3, u + 0.075, top + 0.02], goldDim, 0.55, { poly: true, misreg: false, ampM: 0.2 });
+  }
+  // Shade down the right of each bar and a lit edge on the left.
+  const shade: number[] = [];
+  const lit: number[] = [];
+  for (let i = 0; i < nb; i++) {
+    const u = 0.14 + ((w - 0.28) * i) / (nb - 1);
+    shade.push(u + bw * 0.3, 0.05, u + bw * 0.3, top - 0.05);
+    lit.push(u - bw * 0.2, 0.08, u - bw * 0.2, top - 0.08);
+  }
+  sk.marks(shade, sk.darker(T.gold, 0.5), 1.1, 0.7);
+  sk.marks(lit, css(T.goldLight), 0.9, 0.8);
+  // Rails: a heavy foot and a capping rail.
+  sk.shape([-0.04, 0, -0.04, 0.16, w + 0.04, 0.16, w + 0.04, 0], goldDim, 0.8, { poly: true, misreg: false, ampM: 0.3 });
+  sk.shape([-0.04, top - 0.16, -0.04, top, w + 0.04, top, w + 0.04, top - 0.16], gold, 0.8, { poly: true, misreg: false, ampM: 0.3 });
+  sk.marks([0, top - 0.04, w, top - 0.04], css(T.goldLight), 1, 0.8);
+  // Staves: five fine lines crossing the bars, with the group's lozenge as their clef.
+  const lines: number[] = [];
+  for (const v of gateStaffs('bars', h)) for (const lv of staffLines(v, 0.07)) lines.push(-0.06, lv, w + 0.06, lv);
+  sk.marks(lines, ink, 1, 0.85);
+  for (const v of gateStaffs('bars', h)) groupMark(env, group, w / 2, v, 0.15);
+  goldFlecks(env, 0.1, 0.2, w - 0.1, top - 0.2, Math.round(h * 4), 900 + id);
+}
+
+/** A gilded step: a solid block of gold leaf with a tread to stand on and a staff under the nosing. */
+function drawGateStep(env: Env, group: number, w: number, h: number, id: number): void {
+  const T = env.tones;
+  const ink = sk.inkColor();
+  const body = [0.02, 0, 0.02, h - 0.14, w - 0.02, h - 0.14, w - 0.02, 0];
+  sk.shape(body, gateGold(env, 0.08), 0.9, { poly: true, misreg: false, ampM: 0.3 });
+  sk.clip(
+    body,
+    () => {
+      // Volume: hatched shade down the right and under the tread, a warm lit band on the left.
+      sk.blot(w, h * 0.45, w * 0.35, h * 0.7, env.pats.hatch, 0.6);
+      sk.blot(w / 2, h - 0.14, w * 0.8, 0.12, env.pats.cross, 0.55);
+      sk.blot(0.15, h * 0.5, 0.18, h * 0.6, css(T.goldLight), 0.35);
+      // Faint seams where the sheets of leaf were laid, staggered so they never line up into rungs.
+      const seams: number[] = [];
+      for (let v = 0.55, r = 0; v < h - 0.6; v += 0.55, r++) {
+        const off = r % 2 ? 0.5 : 0;
+        for (let u = 0.5 + off; u < w - 0.1; u += 1) seams.push(u, v - 0.5, u, v);
+      }
+      sk.marks(seams, sk.darker(T.gold, 0.4), 0.8, 0.35);
+    },
+    true,
+  );
+  // Courses every two cells, level with the neighbouring treads, so the stair reads as stacked blocks.
+  const courses: number[] = [];
+  const lits: number[] = [];
+  for (let v = h - 2; v > 0.5; v -= 2) {
+    courses.push(0.02, v, w - 0.02, v);
+    lits.push(0.06, v + 0.05, w - 0.06, v + 0.05);
+  }
+  if (courses.length) {
+    sk.marks(courses, ink, 1.4, 0.75);
+    sk.marks(lits, css(T.goldLight), 1, 0.6);
+  }
+  // The tread: a lighter gold board with a rounded nosing that overhangs the riser.
+  sk.shape([-0.05, h - 0.16, -0.08, h - 0.08, -0.05, h, w + 0.05, h, w + 0.08, h - 0.08, w + 0.05, h - 0.16], sk.col(mix(T.gold, T.goldLight, 0.45)), 0.9, { poly: true, misreg: false, ampM: 0.25 });
+  sk.marks([0.05, h - 0.035, w - 0.05, h - 0.035], css(T.goldLight), 1.3, 0.9);
+  // Staff engraved beneath the nosing.
+  const lines: number[] = [];
+  const sv = gateStaffs('step', h)[0];
+  for (const lv of staffLines(sv, 0.085)) lines.push(0.08, lv, w - 0.08, lv);
+  lines.push(w - 0.3, sv - 0.17, w - 0.3, sv + 0.17);
+  sk.marks(lines, ink, 1, 0.85);
+  sk.marks([w - 0.2, sv - 0.17, w - 0.2, sv + 0.17], ink, 2.2, 0.85);
+  groupMark(env, group, 0.3, sv, 0.15);
+  // A few engraved notes climbing the staff, as a stair should.
+  for (let q = 0; q < 3; q++) {
+    const u = 0.62 + q * ((w - 1.1) / 2);
+    const v = sv - 0.085 + q * 0.085;
+    sk.ellipse(u, v, 0.07, 0.05, 0.35, ink, 0, 0.85);
+    sk.marks([u + 0.06, v, u + 0.06, v + 0.24], ink, 1.1, 0.85);
+  }
+  goldFlecks(env, 0.1, 0.15, w - 0.1, h - 0.3, Math.min(16, Math.round(w * h * 1.5)), 1300 + id);
+}
+
+/** A gilded plank: one cell deep, a staff running its length, bar lines at each measure. */
+function drawGatePlank(env: Env, group: number, w: number, h: number, id: number): void {
+  const T = env.tones;
+  const ink = sk.inkColor();
+  const v0 = 0.14;
+  const v1 = h - 0.02;
+  const board = [-0.02, v0, -0.02, v1, w + 0.02, v1, w + 0.02, v0];
+  sk.shape(board, gateGold(env, 0.05), 0.9, { poly: true, misreg: false, ampM: 0.3 });
+  sk.clip(
+    board,
+    () => {
+      sk.region([-0.1, v0, -0.1, v0 + 0.22, w + 0.1, v0 + 0.22, w + 0.1, v0], env.pats.hatch, 0.6, true);
+      sk.region([-0.1, v1 - 0.12, -0.1, v1, w + 0.1, v1, w + 0.1, v1 - 0.12], css(T.goldLight), 0.45, true);
+    },
+    true,
+  );
+  // The staff along it, bar lines every two cells and a double bar at each end.
+  const sv = gateStaffs('plank', h)[0];
+  const lines: number[] = [];
+  for (const lv of staffLines(sv, 0.11)) lines.push(0.06, lv, w - 0.06, lv);
+  for (let u = 2; u < w - 0.5; u += 2) lines.push(u, sv - 0.22, u, sv + 0.22);
+  sk.marks(lines, ink, 1, 0.8);
+  sk.marks([0.08, sv - 0.22, 0.08, sv + 0.22, w - 0.08, sv - 0.22, w - 0.08, sv + 0.22], ink, 2.2, 0.85);
+  sk.marks([0.17, sv - 0.22, 0.17, sv + 0.22, w - 0.17, sv - 0.22, w - 0.17, sv + 0.22], ink, 1, 0.85);
+  sk.marks([0.02, v1 - 0.03, w - 0.02, v1 - 0.03], css(T.goldLight), 1.3, 0.9);
+  groupMark(env, group, 0.42, sv, 0.13);
+  if (w > 3) groupMark(env, group, w - 0.42, sv, 0.13);
+  goldFlecks(env, 0.1, v0 + 0.1, w - 0.1, v1 - 0.1, Math.round(w * 4), 1700 + id);
+}
+
+/** The open gate: its outline and staves as faint dotted gold, drifting slowly. */
+function drawGateGhost(ctx: CanvasRenderingContext2D, p: Proj, env: Env, group: number, shape: string, w: number, h: number, a: number, t: number): void {
+  const T = env.tones;
+  const gold = css(mix(T.gold, T.goldLight, 0.15));
+  const vb = shape === 'plank' ? 0.14 : 0;
+  const top = shape === 'step' ? h : h - 0.02;
+  ctx.save();
+  ctx.globalAlpha = 0.6 * a;
+  ctx.setLineDash([2.5 * p.px, 5 * p.px]);
+  ctx.lineDashOffset = -t * 6 * p.px;
+  ctx.beginPath();
+  for (const v of gateStaffs(shape, h)) {
+    const gap = shape === 'plank' ? 0.11 : 0.07;
+    for (const lv of staffLines(v, gap)) {
+      ctx.moveTo(sk.X(0.06), sk.Y(lv));
+      ctx.lineTo(sk.X(w - 0.06), sk.Y(lv));
+    }
+  }
   ctx.strokeStyle = gold;
-  ctx.lineWidth = Math.max(1, 1.4 * p.px);
+  ctx.lineWidth = Math.max(1, 1.5 * p.px);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.rect(sk.X(0.04), sk.Y(top), sk.D(w - 0.08), sk.D(top - vb));
+  if (shape === 'bars') {
+    const nb = Math.max(3, Math.round(w * 4));
+    for (let i = 1; i < nb - 1; i++) {
+      const u = 0.14 + ((w - 0.28) * i) / (nb - 1);
+      ctx.moveTo(sk.X(u), sk.Y(0));
+      ctx.lineTo(sk.X(u), sk.Y(top));
+    }
+  }
+  ctx.setLineDash([3 * p.px, 4 * p.px]);
+  ctx.lineWidth = Math.max(1, 1.2 * p.px);
+  ctx.globalAlpha = 0.45 * a;
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.globalAlpha = 0.5 + 0.5 * vis;
-  for (const X of [X0, X1]) {
-    ctx.beginPath();
-    ctx.arc(X, Y1 - 0.08 * p.k, 0.1 * p.k, 0, TAU);
-    ctx.fillStyle = gc;
-    ctx.fill();
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = Math.max(1, 1.3 * p.px);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(X - 0.03 * p.k, Y1 - 0.11 * p.k, 0.03 * p.k, 0, TAU);
-    ctx.fillStyle = 'rgba(255,250,236,0.8)';
-    ctx.fill();
+  // The group's lozenge stays faintly visible so the gate can still be matched to its key.
+  const gc = T.groupsRGB[group % T.groupsRGB.length];
+  ctx.globalAlpha = 0.55 * a;
+  ctx.fillStyle = css(gc);
+  ctx.beginPath();
+  for (const v of gateStaffs(shape, h)) {
+    const u = shape === 'bars' ? w / 2 : shape === 'step' ? 0.32 : 0.42;
+    const r = 0.12;
+    ctx.moveTo(sk.X(u), sk.Y(v - r));
+    ctx.lineTo(sk.X(u + r * 0.8), sk.Y(v));
+    ctx.lineTo(sk.X(u), sk.Y(v + r));
+    ctx.lineTo(sk.X(u - r * 0.8), sk.Y(v));
+    ctx.closePath();
   }
+  ctx.fill();
   ctx.restore();
 }
 
