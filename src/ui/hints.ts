@@ -27,6 +27,8 @@ const HINTS: Record<HintId, Copy> = {
   midair: 'You can turn the world in mid-air. It slows while it turns',
   hidden: 'Some notes hide behind things on the page',
   exit: 'The fermata closes the movement',
+  machine: 'Some keys wake the machinery',
+  ride: 'Behind the wall, the stage still carries you',
   finale: 'Everything you have learned, together',
 };
 

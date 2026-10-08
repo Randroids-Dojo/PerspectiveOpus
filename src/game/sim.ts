@@ -59,6 +59,8 @@ export interface Body {
   max: Vec3;
   /** How far the body moved this step. */
   delta: Vec3;
+  /** Velocity this step (delta / dt). */
+  vel: Vec3;
   solid: boolean;
 }
 
@@ -106,6 +108,8 @@ export interface PlayerState {
   stepAcc: number;
   /** Distance walked, for animation phase. */
   walk: number;
+  /** Momentum kept from a moving platform after leaving it (x, z), cleared on landing. */
+  carry: Vec3;
 }
 
 export interface PlatformState {
@@ -182,6 +186,7 @@ export class Game {
       dead: 0,
       stepAcc: 0,
       walk: 0,
+      carry: v3(),
     };
     const maxGroup = Math.max(
       0,
@@ -197,6 +202,7 @@ export class Game {
         min: v3(p.path[0].x, p.path[0].y, p.path[0].z),
         max: v3(p.path[0].x + p.size.x, p.path[0].y + p.size.y, p.path[0].z + p.size.z),
         delta: v3(),
+        vel: v3(),
         solid: true,
       };
       const st: PlatformState = { clock: p.phase, body };
@@ -207,7 +213,7 @@ export class Game {
     }
     for (const g of level.gates) {
       const solid = this.groups[g.group] === g.solidWhenOn;
-      const body: Body = { kind: 'gate', id: g.id, min: { ...g.min }, max: { ...g.max }, delta: v3(), solid };
+      const body: Body = { kind: 'gate', id: g.id, min: { ...g.min }, max: { ...g.max }, delta: v3(), vel: v3(), solid };
       this.gateBodies.push(body);
       this.bodies.push(body);
       this.gateVis.push(solid ? 1 : 0);
@@ -219,6 +225,7 @@ export class Game {
         min: v3(d.pos.x + 0.06, d.pos.y, d.pos.z + 0.06),
         max: v3(d.pos.x + 0.94, d.pos.y + 0.72, d.pos.z + 0.94),
         delta: v3(),
+        vel: v3(),
         solid: true,
       };
       this.drumBodies.push(body);
@@ -342,6 +349,8 @@ export class Game {
       const active = def.group === undefined || this.groups[def.group];
       if (active) st.clock += dt;
       this.placePlatform(st);
+      const b = st.body;
+      b.vel = dt > 0 ? v3(b.delta.x / dt, b.delta.y / dt, b.delta.z / dt) : v3();
     }
   }
 
@@ -428,6 +437,10 @@ export class Game {
     if (pl.grounded) pl.coyote = PHYS.coyote;
     else pl.coyote = Math.max(0, pl.coyote - dt);
     if (pl.buffer > 0 && pl.coyote > 0) {
+      if (pl.support && pl.support.kind === 'platform') {
+        const bv = this.platforms[pl.support.id].body.vel;
+        pl.carry = v3(bv.x, 0, bv.z);
+      }
       pl.vel.y = PHYS.jumpV;
       pl.grounded = false;
       pl.coyote = 0;
@@ -450,13 +463,20 @@ export class Game {
 
     const wasGrounded = pl.grounded;
     const fallSpeed = -pl.vel.y;
+    const prevSupport = pl.support;
 
-    // Move one axis at a time.
-    const hitX = this.moveAxis(geo, 'x', pl.vel.x * dt, null, null);
-    if (hitX) pl.vel.x = 0;
+    // Move one axis at a time. Momentum from a platform rides along while airborne.
+    const hitX = this.moveAxis(geo, 'x', (pl.vel.x + pl.carry.x) * dt, null, null);
+    if (hitX) {
+      pl.vel.x = 0;
+      pl.carry.x = 0;
+    }
     if (this.mode === '3d' || pl.embedded) {
-      const hitZ = this.moveAxis(geo, 'z', pl.vel.z * dt, null, null);
-      if (hitZ) pl.vel.z = 0;
+      const hitZ = this.moveAxis(geo, 'z', (pl.vel.z + pl.carry.z) * dt, null, null);
+      if (hitZ) {
+        pl.vel.z = 0;
+        pl.carry.z = 0;
+      }
     }
     const supports: Support[] = [];
     const hitY = this.moveAxis(geo, 'y', pl.vel.y * dt, null, supports);
@@ -467,6 +487,13 @@ export class Game {
       } else pl.vel.y = 0;
     }
     pl.grounded = hitY && supports.length > 0;
+
+    if (pl.grounded) pl.carry = v3();
+    else if (prevSupport && prevSupport.kind === 'platform') {
+      const bv = this.platforms[prevSupport.id].body.vel;
+      pl.carry = v3(bv.x, 0, bv.z);
+      if (bv.y > 0) pl.vel.y += bv.y * 0.5;
+    }
 
     if (pl.grounded) {
       const chosen = this.chooseSupport(supports, geo);
@@ -620,7 +647,8 @@ export class Game {
     }
 
     // Hazards.
-    if (pl.pos.y < PHYS.killY) return this.die('fall');
+    const killY = lv.info.water !== undefined ? lv.info.water - 0.75 : PHYS.killY;
+    if (pl.pos.y < killY) return this.die('fall');
     if (this.touchesThorns()) return this.die('thorn');
     for (const d of this.discords) {
       const dx = Math.abs(d.pos.x - pc.x) - PLAYER.hw;
@@ -690,6 +718,7 @@ export class Game {
     pl.pos = { ...r.pos };
     pl.prev = { ...r.pos };
     pl.vel = v3();
+    pl.carry = v3();
     pl.grounded = false;
     pl.support = null;
     pl.buffer = 0;

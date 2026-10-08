@@ -113,6 +113,8 @@ export type HintId =
   | 'midair'
   | 'hidden'
   | 'exit'
+  | 'machine'
+  | 'ride'
   | 'finale';
 
 export type DecorKind =
@@ -164,6 +166,8 @@ export interface LevelInfo {
   palette: PaletteId;
   /** Tempo marking shown on the programme, e.g. "Allegro moderato". */
   tempo: string;
+  /** Height of the water surface, if the movement has water below. Falling in ends the attempt. */
+  water?: number;
 }
 
 export interface Box {

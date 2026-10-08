@@ -1,9 +1,14 @@
 import { compileLevel, type Level, type LevelDef } from '../level';
+import { adagio } from './adagio';
+import { finale } from './finale';
 import { gallery } from './gallery';
+import { nocturne } from './nocturne';
 import { overture } from './overture';
+import { scherzo } from './scherzo';
 import { titleScene } from './title';
+import { toccata } from './toccata';
 
-export const LEVELS: LevelDef[] = [overture];
+export const LEVELS: LevelDef[] = [overture, adagio, scherzo, nocturne, toccata, finale];
 
 const cache = new Map<string, Level>();
 export const EXTRA_LEVELS: Record<string, LevelDef> = { gallery, title: titleScene };
