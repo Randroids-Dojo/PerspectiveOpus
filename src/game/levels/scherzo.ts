@@ -56,7 +56,7 @@ export const scherzo: LevelDef = {
     b.note(62, 7, 4);
     b.decor('tree', 66, 5, 7, 1.2).decor('lamp', 59, 5, 7).decor('mushroom', 68, 5, 0).decor('grass', 64, 5, 2);
 
-    // ---- E: the bell tower. Drums at the front, landings at the back, only lined up on the page.
+    // ---- E: the bell tower. Drums at the front, landings at the back: easy on the page, a hard diagonal bounce on the stage.
     land(70, 74, 5);
     b.drum(72, 5, 1);
     land(74, 82, 10, 0, D, 'brick');
