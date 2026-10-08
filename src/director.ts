@@ -309,7 +309,7 @@ export class Director {
         'They were one song, heard two ways.',
         total === 42 ? 'Every one of the forty-two notes is home. Encore.' : `${total} of 42 notes are home. The rest are still out there, humming.`,
       ];
-      const roll = h('div', { class: 'ending-roll' }, ...lines.map((l, i) => h('p', { style: { animationDelay: `${2 + i * 5}s` } }, l)));
+      const roll = h('div', { class: 'ending-roll' }, ...lines.map((l, i) => h('p', { style: { animationDelay: `${2 + i * 6}s` } }, l)));
       const credits = creditsScreen({ hooks: this.hooks, onBack: () => this.fadeOut(() => this.showTitle()), total });
       credits.el.classList.add('ending-credits');
       const el = h('div', { class: 'screen ending-screen' }, roll, credits.el);

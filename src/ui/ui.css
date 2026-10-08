@@ -587,7 +587,7 @@
 
 .ending-roll {
   position: absolute;
-  top: 18vh;
+  top: 40vh;
   left: 0;
   right: 0;
   text-align: center;
@@ -603,11 +603,11 @@
   font-size: clamp(26px, 4.6vh, 44px);
   text-shadow: var(--hud-shadow);
   opacity: 0;
-  animation: ending-line 5s var(--ease) both;
+  animation: ending-line 6s var(--ease) both;
 }
 
 .ending-roll p:last-child {
-  animation: ending-last 30s var(--ease) both;
+  animation-duration: 7s;
 }
 
 @keyframes ending-line {
@@ -629,31 +629,22 @@
   }
 }
 
-@keyframes ending-last {
-  0% {
-    opacity: 0;
-    filter: blur(6px);
-  }
-  4%,
-  100% {
-    opacity: 1;
-    filter: none;
-  }
-}
-
 .ending-credits {
-  position: absolute !important;
-  inset: auto 0 6vh 0 !important;
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  animation: credits-in 2s var(--ease) 24s both;
-  opacity: 1 !important;
+  animation: credits-in 2.4s var(--ease) 27s both;
 }
 
 @keyframes credits-in {
   from {
     opacity: 0;
     transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
