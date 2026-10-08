@@ -1145,7 +1145,9 @@ export class Backdrop {
     for (let i = 0; i < heights.length; i++) if (heights[i] > 0) minTop = Math.min(minTop, heights[i]);
     if (!Number.isFinite(minTop)) minTop = g0;
 
-    this.waterY = pal.water ? Math.max(0.4, Math.min(2.5, minTop - 1.6)) : -999;
+    // Levels with water say where its surface is (falling below it ends the attempt).
+    this.waterY =
+      lv.info.water !== undefined ? lv.info.water : pal.water ? Math.max(0.4, Math.min(2.5, minTop - 1.6)) : -999;
     const fog = col(pal.fog).lerp(col(pal.skyHorizon), 0.35);
     const mist = col(pal.skyBottom).lerp(col(pal.fog), 0.45);
     const fu = this.flatMat.uniforms;
