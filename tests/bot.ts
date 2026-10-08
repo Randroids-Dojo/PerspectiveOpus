@@ -15,6 +15,8 @@ export class Bot {
   log: string[] = [];
   private held = false;
   bounces = 0;
+  /** Called with every simulation input, for recording a run. */
+  onStep: ((f: InputFrame) => void) | null = null;
 
   constructor(level: Level, mode: Mode = '3d') {
     this.game = new Game(level, mode);
@@ -26,6 +28,7 @@ export class Bot {
 
   private tick(input: Partial<InputFrame>): void {
     const f: InputFrame = { moveX: 0, moveZ: 0, jumpHeld: this.held, jumpPressed: false, switchPressed: false, ...input };
+    this.onStep?.(f);
     this.game.step(DT, f);
     this.frames++;
     for (const e of this.game.events) {
