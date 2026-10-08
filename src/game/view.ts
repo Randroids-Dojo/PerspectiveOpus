@@ -93,6 +93,8 @@ export function createView(): ViewState {
 }
 
 export function pixelsPerUnit(w: number, h: number): number {
+  // Portrait phones frame closer so Quaver is not lost in a tall sky.
+  if (h > w) return Math.min(w / 11, h / 18);
   return Math.min(h / 12.5, w / 16);
 }
 
