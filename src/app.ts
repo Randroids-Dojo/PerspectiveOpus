@@ -3,7 +3,7 @@ import { Input } from './core/input';
 import { getLevel } from './game/levels';
 import { PALETTES } from './game/palettes';
 import { Game, type GameEvent } from './game/sim';
-import type { Mode } from './game/types';
+import type { Mode, PaletteId } from './game/types';
 import { createView, resizeView, snapView, updateView, type ViewState } from './game/view';
 import type { FrameInfo, Quality, WorldRenderer } from './render/types';
 import { Page } from './render2d/page';
@@ -54,18 +54,28 @@ export class App {
     this.page.resize(w, h, dpr);
   }
 
-  startLevel(index: number, mode: Mode): Game {
-    this.levelIndex = index;
+  startLevel(index: number | string, mode: Mode, paletteOverride?: PaletteId): Game {
+    this.levelIndex = typeof index === 'number' ? index : -1;
     const level = getLevel(index);
     const game = new Game(level, mode);
     this.game = game;
-    const palette = PALETTES[level.info.palette];
+    const palette = PALETTES[paletteOverride ?? level.info.palette];
     this.stage.load(game, palette);
     this.page.load(game, palette);
     snapView(this.view, game);
     this.acc = 0;
     this.pendingEvents = [];
     return game;
+  }
+
+  /** Dev helper: moves the player and snaps the cameras. */
+  teleport(x: number, y: number, z: number): void {
+    const g = this.game;
+    if (!g) return;
+    g.player.pos = { x, y, z };
+    g.player.prev = { x, y, z };
+    g.player.vel = { x: 0, y: 0, z: 0 };
+    snapView(this.view, g);
   }
 
   start(): void {

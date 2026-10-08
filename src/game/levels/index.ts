@@ -1,11 +1,14 @@
 import { compileLevel, type Level, type LevelDef } from '../level';
+import { gallery } from './gallery';
 import { overture } from './overture';
 
 export const LEVELS: LevelDef[] = [overture];
 
 const cache = new Map<string, Level>();
-export function getLevel(index: number): Level {
-  const def = LEVELS[index];
+export const EXTRA_LEVELS: Record<string, LevelDef> = { gallery };
+
+export function getLevel(index: number | string): Level {
+  const def = typeof index === 'string' ? EXTRA_LEVELS[index] ?? LEVELS[Number(index)] : LEVELS[index];
   let lv = cache.get(def.info.id);
   if (!lv) {
     lv = compileLevel(def);
