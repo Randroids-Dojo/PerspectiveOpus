@@ -10,7 +10,20 @@ import { registerServiceWorker, watchForUpdates } from './core/update';
 import type { Mode, PaletteId } from './game/types';
 
 const root = document.getElementById('world')!;
-const app = new App(root);
+let app: App;
+try {
+  app = new App(root);
+} catch (err) {
+  // Without WebGL there is no stage to stand on; say so plainly.
+  const boot = document.getElementById('boot');
+  if (boot)
+    boot.innerHTML =
+      '<div class="boot-mark"><em>Perspective</em><span>Opus</span></div>' +
+      '<p style="max-width:420px;text-align:center;font:italic 18px/1.4 Georgia,serif;color:#f5ead2cc">' +
+      'This browser could not open the Stage (WebGL is turned off or unavailable). ' +
+      'Try a current Chrome, Safari, Edge or Firefox with hardware acceleration on.</p>';
+  throw err;
+}
 const director = new Director(app);
 const params = new URLSearchParams(location.search);
 
