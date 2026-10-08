@@ -451,6 +451,18 @@ export class Director {
     audio.playSong(SONGS[id] ?? 'title');
   }
 
+  /** A newer version is live: offer a refresh without interrupting play. */
+  showUpdate(): void {
+    if (this.ui.querySelector('.update')) return;
+    const bar = h(
+      'button',
+      { class: 'update', type: 'button', onclick: () => location.reload() },
+      h('span', {}, 'A new performance is ready.'),
+      h('strong', {}, 'Refresh'),
+    );
+    this.ui.append(bar);
+  }
+
   applySettings(): void {
     const s = this.save.settings;
     this.app.audio.setVolumes({ master: s.master, music: s.music, sfx: s.sfx });

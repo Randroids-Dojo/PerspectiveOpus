@@ -17,6 +17,20 @@
     <title>Perspective Opus</title>
   </head>
   <body>
+    <div id="boot" aria-hidden="true">
+      <div class="boot-mark"><em>Perspective</em><span>Opus</span></div>
+      <div class="boot-line"></div>
+    </div>
+    <style>
+      #boot { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 22px;
+        background: radial-gradient(ellipse at 50% 45%, #2a1830, #0d0b10 70%); color: #f5ead2; transition: opacity 0.8s ease; }
+      #boot.gone { opacity: 0; pointer-events: none; }
+      .boot-mark { font: italic 500 44px/0.9 'Cormorant Garamond', Georgia, serif; text-align: center; }
+      .boot-mark span { display: block; font-size: 84px; color: #e6c47c; margin-left: 0.3em; }
+      .boot-line { width: 160px; height: 1px; background: linear-gradient(90deg, transparent, #e6c47c, transparent);
+        animation: boot-line 1.6s ease-in-out infinite; }
+      @keyframes boot-line { 0%, 100% { opacity: 0.2; transform: scaleX(0.4); } 50% { opacity: 1; transform: scaleX(1); } }
+    </style>
     <div id="world" aria-hidden="true"></div>
     <div id="ui"></div>
     <script type="module" src="/src/main.ts"></script>

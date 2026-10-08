@@ -6,6 +6,7 @@ import './styles.css';
 import './ui/ui.css';
 import { App } from './app';
 import { Director } from './director';
+import { registerServiceWorker, watchForUpdates } from './core/update';
 import type { Mode, PaletteId } from './game/types';
 
 const root = document.getElementById('world')!;
@@ -31,3 +32,7 @@ declare global {
 }
 window.__opus = app;
 window.__director = director;
+registerServiceWorker();
+watchForUpdates(() => director.showUpdate());
+document.getElementById('boot')?.classList.add('gone');
+setTimeout(() => document.getElementById('boot')?.remove(), 900);

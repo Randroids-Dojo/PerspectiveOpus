@@ -53,7 +53,12 @@ export function titleScreen(opts: {
     h('h1', { class: 'title-name' }, h('span', { class: 'w1' }, 'Perspective'), h('span', { class: 'w2' }, 'Opus')),
     h('div', { class: 'title-rule' }),
   );
-  const foot = h('div', { class: 'title-foot' }, h('span', { class: 'title-turn' }, 'Shift turns the world'));
+  const foot = h(
+    'div',
+    { class: 'title-foot' },
+    h('span', { class: 'title-turn' }, 'Shift turns the world'),
+    h('div', { class: 'rotate-hint' }, 'Best played with your phone turned sideways'),
+  );
   return menuScreen('title', [mark], menu, [foot]);
 }
 
