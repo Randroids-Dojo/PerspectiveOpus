@@ -345,7 +345,7 @@ export function creditsScreen(opts: { hooks: MenuHooks; onBack: () => void; tota
     'div',
     { class: 'credits-roll' },
     h('div', { class: 'credits-kicker' }, 'Perspective Opus'),
-    h('p', {}, 'A game by Randroid’s Dojo'),
+    h('p', {}, 'A game by toyboxes.games'),
     h('h3', {}, 'Performed by'),
     h('p', {}, 'Quaver, the last little note'),
     h('h3', {}, 'The Score'),
