@@ -22,6 +22,8 @@ export class Hud {
   private flyLayer = h('div', { class: 'hud-fly' });
   private slotEls: HTMLElement[] = [];
   showTimer = false;
+  /** Hints wait until this time (ms) so they never sit on top of the movement's title card. */
+  quietUntil = 0;
 
   constructor(onSwitch: () => void, onPause: () => void) {
     this.badge = h(
@@ -72,7 +74,8 @@ export class Hud {
     this.badgeKey.textContent = device === 'keyboard' ? 'Shift' : device === 'gamepad' ? 'Y' : '';
     this.badge.dataset.mode = mode;
     const sign = game.activeSign;
-    const id = sign && !game.finished && game.player.dead <= 0 ? sign.hint : null;
+    const quiet = performance.now() < this.quietUntil;
+    const id = sign && !quiet && !game.finished && game.player.dead <= 0 ? sign.hint : null;
     if (id !== this.hintId || device !== this.hintDevice) {
       this.hintId = id;
       this.hintDevice = device;

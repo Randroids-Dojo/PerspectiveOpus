@@ -178,6 +178,7 @@ export class Director {
       this.app.audio.setRestored(0, game.level.notes.length);
       this.playMusicForState();
       this.showCard(index);
+      this.hud.quietUntil = performance.now() + 3600;
       this.fadeIn();
     });
   }
