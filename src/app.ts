@@ -1,4 +1,5 @@
-import { SilentAudio, type AudioEngine } from './audio/audio';
+import type { AudioEngine } from './audio/audio';
+import { createAudio } from './audio/engine';
 import { Input } from './core/input';
 import { getLevel } from './game/levels';
 import { PALETTES } from './game/palettes';
@@ -15,7 +16,7 @@ const STEP = 1 / 120;
 export class App {
   readonly input = new Input();
   readonly view: ViewState = createView();
-  audio: AudioEngine = new SilentAudio();
+  audio: AudioEngine = createAudio();
   stage: WorldRenderer;
   page: WorldRenderer;
   game: Game | null = null;

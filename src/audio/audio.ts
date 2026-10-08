@@ -14,6 +14,31 @@ export type UiSound =
   | 'unlock'
   | 'page';
 
+/** Diagnostics from the real engine (optional on AudioEngine). */
+export interface AudioStats {
+  state: string;
+  song: SongId | null;
+  restored: number;
+  /** Sample voices playing or scheduled. */
+  voices: number;
+  peakVoices: number;
+  /** Voices let go early because the pool was full. */
+  stolen: number;
+  /** Approximate live audio nodes (desk, channel strips, ambience, voices). */
+  nodes: number;
+  samples: number;
+  sampleMB: number;
+  /** Samples waiting to be rendered. */
+  queued: number;
+  renderMs: number;
+  /** Notes skipped because their sample was not ready yet. */
+  missingNotes: number;
+  /** Milliseconds from asking for the current song (or unlocking, if asked before) to its first note. */
+  firstSoundMs: number;
+  sampleRate: number;
+  outputLatency: number;
+}
+
 export interface AudioContextInfo {
   mode: Mode;
   /** Listener position for spatial effects (player position). */
@@ -48,6 +73,10 @@ export interface AudioEngine {
   setPaused(paused: boolean): void;
   /** Game-time multiplier while the world turns (for a gentle filter sweep). */
   setTimeScale(s: number): void;
+  /** Optional: renders a song's samples ahead of time, for example on the programme screen. */
+  preload?(id: SongId): void;
+  /** Optional: diagnostics (voices, nodes, sample memory). */
+  stats?(): AudioStats;
 }
 
 /** Silent engine used until the real one loads, and in tests. */

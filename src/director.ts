@@ -75,8 +75,9 @@ export class Director {
       if (app.audio.unlocked) return;
       void app.audio.unlock().then(() => this.playMusicForState());
     };
-    window.addEventListener('pointerdown', unlock, { capture: true });
-    window.addEventListener('keydown', unlock, { capture: true });
+    // Phones only grant sound on the release of a tap (pointerup, touchend, click), not on the press.
+    for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'])
+      window.addEventListener(ev, unlock, { capture: true });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'play') this.pause();
     });
