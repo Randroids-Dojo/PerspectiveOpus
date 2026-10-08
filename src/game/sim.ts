@@ -677,6 +677,12 @@ export class Game {
     this.events.push({ t: 'death', cause, pos: { ...pl.pos } });
   }
 
+  /** Sends the player back to the last metronome without counting a death. */
+  returnToCheckpoint(): void {
+    if (this.finished) return;
+    this.doRespawn();
+  }
+
   private doRespawn(): void {
     const pl = this.player;
     const r = this.respawn;

@@ -140,6 +140,12 @@ export class Input {
     this.switchLatch = true;
   }
 
+  consumeSwitch(): boolean {
+    const p = this.switchLatch;
+    this.switchLatch = false;
+    return p;
+  }
+
   consumePause(): boolean {
     const p = this.pauseLatch;
     this.pauseLatch = false;

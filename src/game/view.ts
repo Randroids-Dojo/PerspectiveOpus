@@ -56,6 +56,8 @@ export interface ViewState {
   reduceMotion: boolean;
   /** Overrides for cutscenes: extra distance and lift for the stage camera. */
   orbit: { yaw: number; pitch: number; dist: number };
+  /** When set, both cameras frame this point instead of following the player. */
+  focus: Vec3 | null;
 }
 
 export interface Pose3 {
@@ -86,6 +88,7 @@ export function createView(): ViewState {
     shake: 0,
     reduceMotion: false,
     orbit: { yaw: 0, pitch: 0, dist: 0 },
+    focus: null,
   };
 }
 
@@ -102,6 +105,7 @@ export function resizeView(view: ViewState, w: number, h: number, dpr: number): 
 
 /** Where the page camera wants to be. */
 function pageTarget(game: Game, view: ViewState): { x: number; y: number } {
+  if (view.focus) return { x: view.focus.x, y: view.focus.y };
   const pl = game.player;
   const lv = game.level;
   const halfW = view.w / view.ppu / 2;
@@ -115,7 +119,8 @@ function pageTarget(game: Game, view: ViewState): { x: number; y: number } {
   return { x, y };
 }
 
-function stageTarget(game: Game): Vec3 {
+function stageTarget(game: Game, view: ViewState): Vec3 {
+  if (view.focus) return { ...view.focus };
   const pl = game.player;
   return v3(pl.pos.x + pl.facing * 1.1, pl.pos.y + 1.3, pl.pos.z);
 }
@@ -123,7 +128,7 @@ function stageTarget(game: Game): Vec3 {
 export function snapView(view: ViewState, game: Game): void {
   const t = pageTarget(game, view);
   view.c2 = { ...t };
-  view.f3 = stageTarget(game);
+  view.f3 = stageTarget(game, view);
   view.blend = game.mode === '3d' ? 1 : 0;
   splitBlend(view);
 }
@@ -165,9 +170,11 @@ export function updateView(view: ViewState, game: Game, realDt: number): void {
     // Never let the player leave the page vertically.
     const halfH = view.h / view.ppu / 2;
     const py = game.player.pos.y;
-    if (py < view.c2.y - halfH + 1.2) view.c2.y = py - 1.2 + halfH;
-    if (py > view.c2.y + halfH - 2.4) view.c2.y = py + 2.4 - halfH;
-    const t3 = stageTarget(game);
+    if (!view.focus) {
+      if (py < view.c2.y - halfH + 1.2) view.c2.y = py - 1.2 + halfH;
+      if (py > view.c2.y + halfH - 2.4) view.c2.y = py + 2.4 - halfH;
+    }
+    const t3 = stageTarget(game, view);
     view.f3.x = damp(view.f3.x, t3.x, 3.6, realDt);
     view.f3.y = damp(view.f3.y, t3.y, game.player.grounded ? 4 : 2.2, realDt);
     view.f3.z = damp(view.f3.z, t3.z, 3.6, realDt);
@@ -211,4 +218,44 @@ export function stagePose(view: ViewState): Pose3 {
     far: dist + 220,
     dist,
   };
+}
+
+/** Projects a world point through the stage camera to CSS pixels. */
+export function worldToStage(view: ViewState, x: number, y: number, z: number): { x: number; y: number; behind: boolean } {
+  const pose = stagePose(view);
+  const p = pose.position;
+  const t = pose.target;
+  // Camera basis in simulation space (z away from the viewer, so this is a left-handed frame).
+  let fx = t.x - p.x;
+  let fy = t.y - p.y;
+  let fz = t.z - p.z;
+  const fl = Math.hypot(fx, fy, fz);
+  fx /= fl;
+  fy /= fl;
+  fz /= fl;
+  // right = up x forward (keeps +x on the right for a camera looking along +z)
+  let rx = fz;
+  let ry = 0;
+  let rz = -fx;
+  const rl = Math.hypot(rx, ry, rz) || 1;
+  rx /= rl;
+  ry /= rl;
+  rz /= rl;
+  const ux = fy * rz - fz * ry;
+  const uy = fz * rx - fx * rz;
+  const uz = fx * ry - fy * rx;
+  const dx = x - p.x;
+  const dy = y - p.y;
+  const dz = z - p.z;
+  const cx = dx * rx + dy * ry + dz * rz;
+  const cy = dx * ux + dy * uy + dz * uz;
+  const cz = dx * fx + dy * fy + dz * fz;
+  const f = view.h / 2 / Math.tan(((pose.fovDeg * Math.PI) / 180) / 2);
+  return { x: view.w / 2 + (cx / cz) * f, y: view.h / 2 - (cy / cz) * f, behind: cz <= 0 };
+}
+
+/** Screen position of a world point in whichever world is showing. */
+export function worldToScreen(view: ViewState, x: number, y: number, z: number): { x: number; y: number } {
+  if (view.wipe < 1) return worldToPage(view, x, y);
+  return worldToStage(view, x, y, z);
 }

@@ -45,6 +45,37 @@ export class App {
     this.frameListeners.push(fn);
   }
 
+  private qualitySetting: 'auto' | Quality = 'auto';
+  private slowFrames = 0;
+  private frameCount = 0;
+
+  /** Picks a detail tier. 'auto' starts from the device and steps down if frames run slow. */
+  setQuality(q: 'auto' | Quality): void {
+    this.qualitySetting = q;
+    if (q === 'auto') {
+      const coarse = window.matchMedia?.('(pointer: coarse)').matches;
+      const small = Math.min(window.innerWidth, window.innerHeight) < 600;
+      this.quality = coarse || small ? 'medium' : 'high';
+    } else this.quality = q;
+    this.slowFrames = 0;
+    this.resize();
+  }
+
+  private watchFrameRate(dt: number): void {
+    if (this.qualitySetting !== 'auto' || this.paused || document.hidden) return;
+    this.frameCount++;
+    if (this.frameCount < 120) return;
+    // Over about three seconds of slow frames, drop a tier.
+    if (dt > 1 / 40) this.slowFrames++;
+    else this.slowFrames = Math.max(0, this.slowFrames - 0.25);
+    if (this.slowFrames > 90 && this.quality !== 'low') {
+      this.quality = this.quality === 'high' ? 'medium' : 'low';
+      this.slowFrames = 0;
+      this.frameCount = 0;
+      this.resize();
+    }
+  }
+
   resize(): void {
     const w = this.root.clientWidth || window.innerWidth;
     const h = this.root.clientHeight || window.innerHeight;
@@ -65,6 +96,7 @@ export class App {
     snapView(this.view, game);
     this.acc = 0;
     this.pendingEvents = [];
+    this.frameCount = 0;
     return game;
   }
 
@@ -136,5 +168,6 @@ export class App {
       if (showPage) this.page.render(game, this.view, info);
     }
     for (const fn of this.frameListeners) fn(dt);
+    this.watchFrameRate(dt);
   }
 }
