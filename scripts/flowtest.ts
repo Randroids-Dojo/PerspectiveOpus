@@ -10,6 +10,7 @@ import { chromium, type Page } from 'playwright-core';
 const out = process.argv[2] ?? '/tmp/opus-flow';
 const url = process.argv[3] ?? 'http://localhost:5233/';
 const phone = process.env.PHONE === '1';
+const pad = process.env.PAD === '1';
 mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
@@ -25,6 +26,14 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push(e.message));
 await page.addInitScript(() => localStorage.clear());
+if (pad)
+  await page.addInitScript(() => {
+    // A virtual standard-mapping controller the page polls like a real one.
+    const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
+    const fake = { id: 'Virtual pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons, timestamp: 0 };
+    (window as any).__pad = fake;
+    navigator.getGamepads = () => [fake as unknown as Gamepad];
+  });
 await page.goto(url);
 await page.waitForTimeout(1500);
 
@@ -35,7 +44,16 @@ const shot = async (name: string) => {
   console.log('shot', p);
 };
 const state = (p: Page) => p.evaluate(() => (window as any).__director.state as string);
+const PADMAP: Record<string, number> = { Enter: 0, Space: 0, Escape: 1, ShiftLeft: 3, ArrowUp: 12, ArrowDown: 13, ArrowLeft: 14, ArrowRight: 15 };
 const key = async (k: string, wait = 250) => {
+  if (pad && k in PADMAP) {
+    const b = PADMAP[k];
+    await page.evaluate((i) => ((window as any).__pad.buttons[i].pressed = true), b);
+    await page.waitForTimeout(80);
+    await page.evaluate((i) => ((window as any).__pad.buttons[i].pressed = false), b);
+    await page.waitForTimeout(wait);
+    return;
+  }
   await page.keyboard.press(k);
   await page.waitForTimeout(wait);
 };
@@ -84,6 +102,11 @@ await page.waitForTimeout(2500);
 if (phone) {
   const vp = page.viewportSize()!;
   await page.touchscreen.tap(vp.width * 0.2, vp.height * 0.7);
+} else if (pad) {
+  await page.evaluate(() => ((window as any).__pad.axes[0] = 1));
+  await page.waitForTimeout(700);
+  await key('Space', 500);
+  await page.evaluate(() => ((window as any).__pad.axes[0] = 0));
 } else {
   await page.keyboard.down('ArrowRight');
   await page.waitForTimeout(700);
@@ -106,7 +129,12 @@ check((await page.evaluate(() => (window as any).__opus.game.mode)) === '3d', 's
 
 // Pause, back to the metronome.
 if (phone) await tap('.hud-pause', 500);
-else await key('Escape', 500);
+else if (pad) {
+  await page.evaluate(() => ((window as any).__pad.buttons[9].pressed = true));
+  await page.waitForTimeout(80);
+  await page.evaluate(() => ((window as any).__pad.buttons[9].pressed = false));
+  await page.waitForTimeout(500);
+} else await key('Escape', 500);
 check((await state(page)) === 'pause', 'paused');
 await shot('pause');
 if (phone) await tap('.menu-item:has-text("metronome")', 600);
@@ -122,7 +150,7 @@ await page.evaluate(() => {
   const ex = app.game.level.exit.pos;
   app.teleport(ex.x - 1.5, ex.y, ex.z);
 });
-if (!phone) {
+if (!phone && !pad) {
   await page.keyboard.down('ArrowRight');
   await page.waitForTimeout(500);
   await page.keyboard.up('ArrowRight');
