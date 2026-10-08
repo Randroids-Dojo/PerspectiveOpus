@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { groundBelow } from '../render/ground';
 import { clamp, easeInOut, easeOutBack } from '../core/math';
 import { PHYS, type Game } from '../game/sim';
 import type { FrameInfo } from '../render/types';
@@ -137,6 +138,7 @@ export class Quaver {
   private ribbons: Ribbon[] = [];
   private xray: THREE.Mesh[] = [];
   private blob: THREE.Mesh;
+  private landing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   private yaw = 0;
   private squash = 0;
   private squashV = 0;
@@ -262,6 +264,14 @@ export class Quaver {
     );
     this.blob.renderOrder = 2;
     this.group.add(this.blob);
+    const ring = new THREE.RingGeometry(0.28, 0.31, 48);
+    ring.rotateX(-Math.PI / 2);
+    this.landing = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({
+      color: '#f2cc7f', transparent: true, opacity: 0.65, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+    }));
+    this.landing.renderOrder = 3;
+    this.group.add(this.landing);
   }
 
   setGlow(glow: string): void {
@@ -374,13 +384,17 @@ export class Quaver {
     }
 
     // Contact shadow on whatever is below.
-    const gy = this.groundBelow(game, this.feet);
+    const surface = groundBelow(game, this.feet);
+    const gy = surface ?? -99;
     const hgt = Math.max(0, this.feet.y - gy);
     this.blob.visible = !dead && gy > -50;
     this.blob.position.set(this.feet.x, gy + 0.02, this.feet.z);
     const bs = (0.75 - Math.min(0.35, hgt * 0.08)) * popS;
     this.blob.scale.set(bs, 1, bs * 0.85);
     (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.42 * Math.max(0, 1 - hgt / 6);
+    this.landing.visible = !dead && !game.finished && !pl.grounded && surface !== null && hgt < 8;
+    this.landing.position.set(this.feet.x, gy + 0.035, this.feet.z);
+    this.landing.material.opacity = 0.65 * Math.min(1, hgt * 3) * Math.max(0, 1 - hgt / 10);
 
     // Flag and scarf chains in simulation space.
     this.group.updateMatrixWorld(true);
@@ -421,26 +435,4 @@ export class Quaver {
     for (const x of this.xray) x.visible = !dead;
   }
 
-  /** Height of the first solid surface under a point (voxels and solid bodies). */
-  private groundBelow(game: Game, p: THREE.Vector3): number {
-    const lv = game.level;
-    const x = Math.floor(p.x);
-    const z = Math.floor(p.z);
-    let best = -99;
-    if (x >= 0 && x < lv.w && z >= 0 && z < lv.d) {
-      for (let y = Math.min(lv.h - 1, Math.floor(p.y + 0.05)); y >= 0; y--) {
-        const m = lv.cells[x + lv.w * (y + lv.h * z)];
-        if (m !== 0 && m !== 8) {
-          best = y + 1;
-          break;
-        }
-      }
-    }
-    for (const b of game.bodies) {
-      if (!b.solid) continue;
-      if (p.x < b.min.x || p.x > b.max.x || p.z < b.min.z || p.z > b.max.z) continue;
-      if (b.max.y <= p.y + 0.05 && b.max.y > best) best = b.max.y;
-    }
-    return best;
-  }
 }

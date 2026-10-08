@@ -11,16 +11,19 @@ export class Hud {
   readonly el: HTMLElement;
   private title = h('div', { class: 'hud-title' });
   private slots = h('div', { class: 'hud-notes' });
+  private count = h('span', { class: 'hud-count', 'aria-live': 'polite' });
   private badge: HTMLButtonElement;
   private badgeLabel = h('span', { class: 'badge-label' });
   private badgeKey = h('span', { class: 'badge-key' });
   private pauseBtn: HTMLButtonElement;
-  private hint = h('div', { class: 'hud-hint' });
-  private hintId: HintId | null = null;
+  private hint = h('div', { class: 'hud-hint', role: 'status' });
+  private hintId: string | null = null;
   private hintDevice: Device | null = null;
   private timer = h('div', { class: 'hud-timer' });
   private flyLayer = h('div', { class: 'hud-fly' });
   private slotEls: HTMLElement[] = [];
+  private flights = new Set<Animation>();
+  private notice = { text: '', until: 0 };
   showTimer = false;
   /** Hints wait until this time (ms) so they never sit on top of the movement's title card. */
   quietUntil = 0;
@@ -42,7 +45,7 @@ export class Hud {
     this.el = h(
       'div',
       { class: 'hud hidden' },
-      h('div', { class: 'hud-left' }, this.title, this.slots),
+      h('div', { class: 'hud-left' }, this.title, h('div', { class: 'hud-score' }, this.slots, this.count)),
       h('div', { class: 'hud-right' }, this.badge, this.pauseBtn),
       this.timer,
       this.hint,
@@ -51,6 +54,11 @@ export class Hud {
   }
 
   setLevel(game: Game): void {
+    for (const flight of this.flights) flight.cancel();
+    this.flights.clear();
+    this.flyLayer.textContent = '';
+    this.notice = { text: '', until: 0 };
+    this.quietUntil = 0;
     const info = game.level.info;
     this.title.textContent = info.index >= 0 ? `${ROMAN[info.index]}  ${info.title}` : info.title;
     this.slots.textContent = '';
@@ -62,6 +70,7 @@ export class Hud {
     });
     this.hintId = null;
     this.hint.classList.remove('show');
+    this.updateCount(game);
   }
 
   show(v: boolean): void {
@@ -73,30 +82,47 @@ export class Hud {
     this.badgeLabel.textContent = mode === '3d' ? 'Stage' : 'Score';
     this.badgeKey.textContent = device === 'keyboard' ? 'Shift' : device === 'gamepad' ? 'Y' : '';
     this.badge.dataset.mode = mode;
+    this.badge.setAttribute('aria-label', `The ${mode === '3d' ? 'Stage, 3D' : 'Score, 2D'}. Switch to the ${mode === '3d' ? 'Score' : 'Stage'}`);
     const sign = game.activeSign;
     const quiet = performance.now() < this.quietUntil;
-    const id = sign && !quiet && !game.finished && game.player.dead <= 0 ? sign.hint : null;
+    const notice = game.time < this.notice.until ? this.notice.text : '';
+    const id = !quiet && !game.finished && game.player.dead <= 0 ? notice || sign?.hint || null : null;
     if (id !== this.hintId || device !== this.hintDevice) {
       this.hintId = id;
       this.hintDevice = device;
       if (id) {
-        this.hint.textContent = hintText(id, device);
+        this.hint.textContent = notice || hintText(id as HintId, device);
         this.hint.classList.add('show');
       } else this.hint.classList.remove('show');
     }
     this.timer.classList.toggle('show', this.showTimer);
     if (this.showTimer) this.timer.textContent = fmtTime(game.playTime);
+    this.updateCount(game);
     void view;
   }
 
   onEvents(events: readonly GameEvent[], game: Game, view: ViewState): void {
     for (const e of events) {
-      if (e.t === 'note') this.flyNote(e.id, game, view);
+      if (e.t === 'note') {
+        if (view.reduceMotion) this.slotEls[e.id]?.classList.add('found');
+        else this.flyNote(e.id, game, view);
+        if (e.count === e.total) this.notice = { text: 'All seven notes restored. Find the fermata arch.', until: game.time + 4.5 };
+      }
+      if (e.t === 'checkpoint') this.notice = { text: 'Your place is kept at this metronome.', until: game.time + 2.5 };
+      if (e.t === 'respawn') this.notice = { text: 'A fresh start. Your notes are safe.', until: game.time + 2.5 };
       if (e.t === 'switch') {
         this.badge.classList.remove('pulse');
         void this.badge.offsetWidth;
         this.badge.classList.add('pulse');
       }
+    }
+  }
+
+  private updateCount(game: Game): void {
+    const text = `${game.notesCount} / ${game.level.notes.length}`;
+    if (this.count.textContent !== text) {
+      this.count.textContent = text;
+      this.count.setAttribute('aria-label', `${game.notesCount} of ${game.level.notes.length} notes restored`);
     }
   }
 
@@ -120,7 +146,13 @@ export class Hud {
       ],
       { duration: 900, easing: 'cubic-bezier(.5,0,.3,1)' },
     );
+    this.flights.add(anim);
+    anim.oncancel = () => {
+      this.flights.delete(anim);
+      g.remove();
+    };
     anim.onfinish = () => {
+      this.flights.delete(anim);
       g.remove();
       slot.classList.add('found', 'arrive');
       setTimeout(() => slot.classList.remove('arrive'), 700);

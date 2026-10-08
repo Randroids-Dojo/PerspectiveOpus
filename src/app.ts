@@ -23,6 +23,7 @@ export class App {
   levelIndex = 0;
   paused = false;
   quality: Quality = 'high';
+  darkPage = false;
   private acc = 0;
   private last = performance.now();
   private started = performance.now();
@@ -92,6 +93,7 @@ export class App {
     const game = new Game(level, mode);
     this.game = game;
     const palette = PALETTES[paletteOverride ?? level.info.palette];
+    this.darkPage = palette.inverted;
     this.stage.load(game, palette);
     this.page.load(game, palette);
     snapView(this.view, game);

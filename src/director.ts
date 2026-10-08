@@ -99,6 +99,7 @@ export class Director {
     void game;
     this.app.input.enabled = false;
     this.app.paused = false;
+    this.app.audio.setPaused(false);
     this.app.view.focus = { x: 20, y: 9.2, z: 4 };
     this.app.view.orbit = { yaw: 0, pitch: 0, dist: 0 };
     this.titleClock = 0;
@@ -165,12 +166,11 @@ export class Director {
       this.app.view.focus = null;
       this.app.view.orbit = { yaw: 0, pitch: 0, dist: 0 };
       const game = this.app.startLevel(index, mode ?? this.save.settings.startIn);
-      // Notes already found stay found, so a replay is about the ones still missing.
-      const rec = record(this.save, game.level.info.id, game.level.notes.length);
-      void rec;
+      record(this.save, game.level.info.id, game.level.notes.length);
       this.app.input.enabled = true;
       this.app.input.flush();
       this.app.paused = false;
+      this.app.audio.setPaused(false);
       this.completeTimer = -1;
       this.hud.setLevel(game);
       this.hud.show(true);
@@ -178,7 +178,7 @@ export class Director {
       this.app.audio.setRestored(0, game.level.notes.length);
       this.playMusicForState();
       this.showCard(index);
-      this.hud.quietUntil = performance.now() + 3600;
+      this.hud.quietUntil = performance.now() + 2800;
       this.fadeIn();
     });
   }
@@ -189,6 +189,9 @@ export class Director {
     this.state = 'play';
     const game = this.app.startLevel(level, mode, palette);
     this.app.input.enabled = true;
+    this.app.paused = false;
+    this.app.audio.setPaused(false);
+    this.app.audio.setRestored(0, game.level.notes.length);
     this.hud.setLevel(game);
     this.hud.show(true);
     this.refreshTouch();
@@ -297,6 +300,8 @@ export class Director {
       writeSave(this.save);
       this.app.startLevel('title', '3d', 'finale');
       this.app.input.enabled = false;
+      this.app.paused = false;
+      this.app.audio.setPaused(false);
       this.app.view.focus = { x: 22.5, y: 9.4, z: 4 };
       this.app.view.orbit = { yaw: 0, pitch: 0.1, dist: 6 };
       this.hud.show(false);
@@ -326,6 +331,7 @@ export class Director {
     const game = app.game;
     if (!game) return;
     document.documentElement.dataset.world = app.view.blend > 0.5 ? '3d' : '2d';
+    document.documentElement.dataset.darkPage = String(app.darkPage);
     this.touch.setMode(game.mode);
     if (this.state === 'play') {
       if (app.input.consumePause()) this.pause();
@@ -349,10 +355,11 @@ export class Director {
         if (asked) app.audio.ui('page');
       }
       const t = performance.now() / 1000;
-      if (this.state === 'title') app.view.orbit = { yaw: Math.sin(t * 0.11) * 0.22, pitch: Math.sin(t * 0.07) * 0.06, dist: 2 };
+      if (this.state === 'title') app.view.orbit = app.view.reduceMotion ? { yaw: 0, pitch: 0, dist: 2 } : { yaw: Math.sin(t * 0.11) * 0.22, pitch: Math.sin(t * 0.07) * 0.06, dist: 2 };
       else {
         this.endingTimer += dt;
         app.view.orbit = { yaw: Math.sin(t * 0.08) * 0.35, pitch: 0.12 + Math.min(this.endingTimer * 0.004, 0.2), dist: 6 + this.endingTimer * 0.12 };
+        if (app.view.reduceMotion) app.view.orbit = { yaw: 0, pitch: 0.12, dist: 6 };
       }
     } else {
       app.input.consumePause();
@@ -365,7 +372,12 @@ export class Director {
     if (!game || this.state !== 'play') return;
     this.hud.onEvents(events, game, this.app.view);
     for (const e of events) {
-      if (e.t === 'note') this.app.audio.setRestored(e.count, e.total);
+      if (e.t === 'note') {
+        this.app.audio.setRestored(e.count, e.total);
+        const rec = record(this.save, game.level.info.id, game.level.notes.length);
+        rec.notes[e.id] = true;
+        writeSave(this.save);
+      }
       if (e.t === 'exit') this.completeTimer = 0;
       if (e.t === 'death') this.app.view.shake = this.save.settings.reduceMotion ? 0 : 0.6;
       if (e.t === 'land' && e.impact > 17) this.app.view.shake = Math.max(this.app.view.shake, this.save.settings.reduceMotion ? 0 : 0.25);
@@ -375,6 +387,7 @@ export class Director {
   // ---------------------------------------------------------------- input and screens
 
   private nav(a: NavAction): void {
+    if (this.busy) return;
     const top = this.stack[this.stack.length - 1];
     if (!top) {
       if (a === 'pause' && this.state === 'play') {
@@ -465,6 +478,7 @@ export class Director {
     const s = this.save.settings;
     this.app.audio.setVolumes({ master: s.master, music: s.music, sfx: s.sfx });
     this.app.view.reduceMotion = s.reduceMotion;
+    document.documentElement.dataset.reduceMotion = String(s.reduceMotion);
     this.hud.showTimer = s.showTimer;
     this.app.setQuality(s.quality);
   }

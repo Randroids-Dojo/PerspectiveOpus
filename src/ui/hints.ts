@@ -7,7 +7,7 @@ const keys = (k: string, p: string, t: string): Record<Device, string> => ({ key
 
 const HINTS: Record<HintId, Copy> = {
   move: keys('Move with A and D, or the arrow keys', 'Move with the left stick', 'Drag on the left of the screen to move'),
-  jump: keys('Space to jump. Hold it to jump higher', 'A to jump. Hold it to jump higher', 'Tap the round button to jump'),
+  jump: keys('Space to jump. Hold it to jump higher', 'A to jump. Hold it to jump higher', 'Hold the round button to jump higher'),
   depth: keys(
     'W and S walk towards the back and the front of the stage',
     'Push the stick up and down to walk in depth',

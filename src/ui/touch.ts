@@ -10,11 +10,13 @@ export class TouchControls {
   private origin = { x: 0, y: 0 };
   private jumpBtn: HTMLElement;
   private switchBtn: HTMLElement;
+  private switchLabel = h('span', { class: 'touch-world-label' });
+  private buttonPointers = new Map<HTMLElement, number>();
 
   constructor(private input: Input) {
     this.knob = this.stick.firstElementChild as HTMLElement;
-    this.jumpBtn = h('div', { class: 'tbtn tjump', 'aria-label': 'Jump' }, h('span', { class: 'tjump-glyph' }));
-    this.switchBtn = h('div', { class: 'tbtn tswitch', 'aria-label': 'Switch world' }, h('i', { class: 'icon-page' }), h('i', { class: 'icon-stage' }));
+    this.jumpBtn = h('button', { type: 'button', class: 'tbtn tjump', 'aria-label': 'Jump. Hold to jump higher' }, h('span', { class: 'tjump-glyph' }));
+    this.switchBtn = h('button', { type: 'button', class: 'tbtn tswitch', 'aria-label': 'Switch world' }, h('i', { class: 'icon-page' }), h('i', { class: 'icon-stage' }), this.switchLabel);
     const zone = h('div', { class: 'stick-zone' });
     this.el = h('div', { class: 'touch hidden' }, zone, this.stick, this.switchBtn, this.jumpBtn);
 
@@ -22,15 +24,25 @@ export class TouchControls {
     window.addEventListener('pointermove', (e) => this.stickMove(e));
     window.addEventListener('pointerup', (e) => this.stickEnd(e));
     window.addEventListener('pointercancel', (e) => this.stickEnd(e));
+    zone.addEventListener('lostpointercapture', (e) => this.stickEnd(e));
+    window.addEventListener('blur', () => this.reset());
+    window.addEventListener('resize', () => this.reset());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.reset();
+    });
 
     const press = (el: HTMLElement, down: () => void, up?: () => void) => {
       el.addEventListener('pointerdown', (e) => {
+        if (this.buttonPointers.has(el)) return;
         e.preventDefault();
+        this.buttonPointers.set(el, e.pointerId);
         el.setPointerCapture(e.pointerId);
         el.classList.add('down');
         down();
       });
-      const release = () => {
+      const release = (e: PointerEvent) => {
+        if (this.buttonPointers.get(el) !== e.pointerId) return;
+        this.buttonPointers.delete(el);
         el.classList.remove('down');
         up?.();
       };
@@ -60,6 +72,10 @@ export class TouchControls {
 
   setMode(mode: '2d' | '3d'): void {
     this.el.dataset.mode = mode;
+    this.switchBtn.dataset.mode = mode === '3d' ? '2d' : '3d';
+    const to = mode === '3d' ? 'Score' : 'Stage';
+    this.switchLabel.textContent = to;
+    this.switchBtn.setAttribute('aria-label', `Switch to the ${to}`);
   }
 
   private reset(): void {
@@ -67,6 +83,11 @@ export class TouchControls {
     this.input.touch.x = 0;
     this.input.touch.y = 0;
     this.input.touch.jump = false;
+    this.input.touch.active = false;
+    this.buttonPointers.clear();
+    this.jumpBtn.classList.remove('down');
+    this.switchBtn.classList.remove('down');
+    this.knob.style.transform = 'translate(-50%, -50%)';
     this.stick.classList.remove('active');
   }
 
@@ -74,6 +95,8 @@ export class TouchControls {
     if (this.stickId !== null) return;
     e.preventDefault();
     this.stickId = e.pointerId;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    this.input.touch.active = true;
     this.origin = { x: e.clientX, y: e.clientY };
     this.stick.style.left = `${e.clientX}px`;
     this.stick.style.top = `${e.clientY}px`;
@@ -106,6 +129,11 @@ export class TouchControls {
 
   private stickEnd(e: PointerEvent): void {
     if (e.pointerId !== this.stickId) return;
-    this.reset();
+    this.stickId = null;
+    this.input.touch.x = 0;
+    this.input.touch.y = 0;
+    this.input.touch.active = false;
+    this.stick.classList.remove('active');
+    this.knob.style.transform = 'translate(-50%, -50%)';
   }
 }

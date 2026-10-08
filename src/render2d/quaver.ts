@@ -1,5 +1,5 @@
-import { projSolid } from '../game/level';
 import { PHYS, type Game } from '../game/sim';
+import { groundBelow } from '../render/ground';
 import type { FrameInfo } from '../render/types';
 import { css, mix } from './color';
 import type { Env, Proj } from './env';
@@ -456,25 +456,25 @@ export class QuaverPainter {
 
   /** A small hatched shadow on whatever Quaver stands over. */
   private contactShadow(ctx: CanvasRenderingContext2D, p: Proj, env: Env, game: Game, x: number, y: number): void {
-    const lv = game.level;
-    const cx = Math.floor(x);
-    let gy = -1;
-    for (let yy = Math.floor(y + 0.01); yy >= Math.max(0, Math.floor(y) - 5); yy--) {
-      if (projSolid(lv, cx, yy - 1)) {
-        gy = yy;
-        break;
-      }
-    }
-    if (gy < 0) return;
+    const gy = groundBelow(game, { x, y, z: this.pose.z });
+    if (gy === null) return;
     const hgt = y - gy;
-    if (hgt > 4) return;
-    const s = 1 - hgt / 4;
+    if (hgt > 8) return;
+    const s = Math.max(0, 1 - hgt / 4);
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(p.ox + x * p.k, p.oy - gy * p.k + 0.02 * p.k, p.k * 0.34 * (0.5 + 0.5 * s), p.k * 0.06 * (0.5 + 0.5 * s), 0, 0, Math.PI * 2);
     ctx.fillStyle = env.pats.cross;
     ctx.globalAlpha = 0.8 * s;
     ctx.fill();
+    if (!game.player.grounded && !game.finished) {
+      ctx.globalAlpha = 0.8 * Math.min(1, hgt * 3) * Math.max(0, 1 - hgt / 10);
+      ctx.beginPath();
+      ctx.ellipse(p.ox + x * p.k, p.oy - gy * p.k, p.k * 0.3, p.k * 0.065, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = css(env.tones.gold);
+      ctx.lineWidth = Math.max(1, 1.2 * p.px);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

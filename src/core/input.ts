@@ -29,6 +29,8 @@ export class Input {
   private deviceListeners: ((d: Device) => void)[] = [];
   private padPrev: boolean[] = [];
   private padAxesPrev = { x: 0, y: 0 };
+  private padId: string | null = null;
+  private suspended = false;
   /** Touch controls write here. */
   touch = { x: 0, y: 0, jump: false, active: false };
   enabled = true;
@@ -36,7 +38,14 @@ export class Input {
   constructor(target: Window = window) {
     target.addEventListener('keydown', (e) => this.onKey(e, true));
     target.addEventListener('keyup', (e) => this.onKey(e, false));
-    target.addEventListener('blur', () => this.down.clear());
+    target.addEventListener('blur', () => {
+      this.suspended = true;
+      this.reset();
+    });
+    target.addEventListener('focus', () => (this.suspended = false));
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.reset();
+    });
     target.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch') this.setDevice('touch');
     });
@@ -66,6 +75,11 @@ export class Input {
 
   private onKey(e: KeyboardEvent, isDown: boolean): void {
     const code = e.code;
+    // A menu or text field can take focus before the release arrives.
+    if (!isDown) {
+      this.down.delete(code);
+      return;
+    }
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     if (typing) return;
     if (isDown) this.setDevice('keyboard');
@@ -81,7 +95,7 @@ export class Input {
       if ((KEYS.right as readonly string[]).includes(code)) this.emitNav('right');
       if (code === 'Enter' || code === 'Space') this.emitNav('confirm');
       if (code === 'Escape' || code === 'Backspace') this.emitNav('back');
-      if (code === 'Escape' || code === 'KeyP') this.emitNav('pause');
+      if (code === 'KeyP') this.emitNav('pause');
     }
     if (isDown) this.down.add(code);
     else this.down.delete(code);
@@ -94,15 +108,29 @@ export class Input {
 
   /** Reads gamepads once per frame. */
   poll(): void {
+    if (this.suspended || document.hidden) return;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let pad: Gamepad | null = null;
     for (const p of pads) if (p && p.connected) {
       pad = p;
       break;
     }
-    if (!pad) return;
+    if (!pad) {
+      this.pad = { x: 0, y: 0, jump: false };
+      this.padPrev = [];
+      this.padAxesPrev = { x: 0, y: 0 };
+      this.padId = null;
+      return;
+    }
     const b = (i: number) => !!pad!.buttons[i]?.pressed;
     const now: boolean[] = pad.buttons.map((btn) => btn.pressed);
+    const id = `${pad.index}:${pad.id}`;
+    if (id !== this.padId) {
+      // Connecting a controller while a button is held must not select a menu.
+      this.padId = id;
+      this.padPrev = now;
+      this.padAxesPrev = { x: pad.axes[0] ?? 0, y: pad.axes[1] ?? 0 };
+    }
     const edge = (i: number) => now[i] && !this.padPrev[i];
     const ax = pad.axes[0] ?? 0;
     const ay = pad.axes[1] ?? 0;
@@ -157,6 +185,20 @@ export class Input {
     this.jumpLatch = false;
     this.switchLatch = false;
     this.pauseLatch = false;
+  }
+
+  /** Releases every source when focus is lost or a device disappears. */
+  reset(): void {
+    this.down.clear();
+    this.pad = { x: 0, y: 0, jump: false };
+    this.padPrev = [];
+    this.padAxesPrev = { x: 0, y: 0 };
+    this.padId = null;
+    this.touch.x = 0;
+    this.touch.y = 0;
+    this.touch.jump = false;
+    this.touch.active = false;
+    this.flush();
   }
 
   /** Builds one simulation frame. Presses are handed out once. */
