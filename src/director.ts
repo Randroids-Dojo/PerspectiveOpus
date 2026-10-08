@@ -97,7 +97,7 @@ export class Director {
     void game;
     this.app.input.enabled = false;
     this.app.paused = false;
-    this.app.view.focus = { x: 22.5, y: 9.4, z: 4 };
+    this.app.view.focus = { x: 20, y: 9.2, z: 4 };
     this.app.view.orbit = { yaw: 0, pitch: 0, dist: 0 };
     this.titleClock = 0;
     this.titleTurnAt = first ? 7 : 5;
