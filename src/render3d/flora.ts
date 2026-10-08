@@ -312,11 +312,115 @@ export class Flora {
 
 // ---------------------------------------------------------------- thorns
 
+/**
+ * One part of a hazard: geometry in cell space, its colour, how hot it glows
+ * (by local position, before any transform) and, for cogs, how it spins.
+ */
+interface HotPart {
+  g: THREE.BufferGeometry;
+  c: THREE.Color | ((p: THREE.Vector3) => THREE.Color);
+  hot?: (p: THREE.Vector3) => number;
+  /** Centre x, centre y, speed (rad/s), phase: spins in the xy plane. */
+  spin?: [number, number, number, number];
+  m?: THREE.Matrix4;
+}
+
+/** Merges hazard parts into one geometry with colour, `aHot` and `aSpin`. */
+function hotGeometry(parts: HotPart[]): THREE.BufferGeometry {
+  let n = 0;
+  const geos = parts.map((p) => {
+    const g = p.g.index ? p.g.toNonIndexed() : p.g.clone();
+    if (!g.attributes.normal) g.computeVertexNormals();
+    n += g.attributes.position.count;
+    return g;
+  });
+  const pos = new Float32Array(n * 3);
+  const nor = new Float32Array(n * 3);
+  const colr = new Float32Array(n * 3);
+  const hot = new Float32Array(n);
+  const spin = new Float32Array(n * 4);
+  const v = new THREE.Vector3();
+  let o = 0;
+  geos.forEach((g, gi) => {
+    const p = parts[gi];
+    const pa = g.attributes.position;
+    for (let i = 0; i < pa.count; i++) {
+      v.fromBufferAttribute(pa, i);
+      const c = typeof p.c === 'function' ? p.c(v) : p.c;
+      colr.set([c.r, c.g, c.b], (o + i) * 3);
+      hot[o + i] = p.hot ? p.hot(v) : 0;
+      if (p.spin) spin.set(p.spin, (o + i) * 4);
+    }
+    if (p.m) g.applyMatrix4(p.m);
+    pos.set(g.attributes.position.array as Float32Array, o * 3);
+    nor.set(g.attributes.normal.array as Float32Array, o * 3);
+    o += pa.count;
+    g.dispose();
+  });
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.BufferAttribute(colr, 3));
+  out.setAttribute('aHot', new THREE.BufferAttribute(hot, 1));
+  out.setAttribute('aSpin', new THREE.BufferAttribute(spin, 4));
+  out.computeBoundingSphere();
+  return out;
+}
+
+const HOT_VERT_PARS = /* glsl */ `
+attribute float aHot;
+attribute vec4 aSpin;
+varying float vHot;
+`;
+
+// Cogs turn in the xy plane about their own centres; neighbours along x turn the other way.
+const SPIN_NORMAL = /* glsl */ `
+float spinDir = 1.0;
+#ifdef USE_INSTANCING
+  spinDir = mod(floor(instanceMatrix[3][0] + 0.01), 2.0) < 0.5 ? 1.0 : -1.0;
+#endif
+float spinA = uTime * aSpin.z * spinDir + aSpin.w + (spinDir < 0.0 ? 0.31 : 0.0);
+float spinC = cos(spinA);
+float spinS = sin(spinA);
+mat2 spinM = mat2(spinC, spinS, -spinS, spinC);
+objectNormal.xy = spinM * objectNormal.xy;
+vHot = aHot;
+`;
+
+const SPIN_POS = /* glsl */ `
+transformed.xy = aSpin.xy + spinM * (transformed.xy - aSpin.xy);
+`;
+
+function hotMaterial(bag: Bag, key: string, o: THREE.MeshStandardMaterialParameters): { m: THREE.MeshStandardMaterial; u: { value: THREE.Color } } {
+  const m = bag.add(new THREE.MeshStandardMaterial({ vertexColors: true, ...o }));
+  const u = { value: new THREE.Color() };
+  patch(m, {
+    cutout: true,
+    hfog: true,
+    key,
+    extra: (shader) => {
+      shader.uniforms.uHot = u;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${HOT_VERT_PARS}`)
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${SPIN_NORMAL}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${SPIN_POS}`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform vec3 uHot;\nvarying float vHot;')
+        .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor *= 1.0 - vHot * vHot;')
+        // Heat is interpolated from tip to root; sharpen it so only the points burn.
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uHot * pow(vHot, 3.0);');
+    },
+  });
+  return { m, u };
+}
+
 function bramble(seed: number, stem: THREE.Color, tip: THREE.Color): { geo: THREE.BufferGeometry; berries: THREE.Vector3[] } {
   const r = rng(seed);
-  const parts: THREE.BufferGeometry[] = [];
+  const parts: HotPart[] = [];
   const berries: THREE.Vector3[] = [];
   const vines = 6 + Math.floor(r() * 3);
+  const stemCol = (p: THREE.Vector3) => stem.clone().multiplyScalar(0.7 + p.y * 0.45);
+  const up = new THREE.Vector3(0, 1, 0);
   for (let v = 0; v < vines; v++) {
     const pts: THREE.Vector3[] = [];
     const a0 = r() * Math.PI * 2;
@@ -330,96 +434,196 @@ function bramble(seed: number, stem: THREE.Color, tip: THREE.Color): { geo: THRE
       const rr0 = rad * (1 - t * 0.5) + rr(r, -0.05, 0.05);
       pts.push(new THREE.Vector3(0.5 + Math.cos(a) * rr0, t * h, 0.5 + Math.sin(a) * rr0));
     }
-    const tube = taperTube(pts, 0.05, 0.014, 5);
-    parts.push(tube);
+    parts.push({ g: taperTube(pts, 0.05, 0.014, 5), c: stemCol });
     const curve = new THREE.CatmullRomCurve3(pts);
-    // Thorns along the vine.
-    for (let k = 0; k < 12; k++) {
-      const t = rr(r, 0.05, 0.95);
+    // Long thorns along the vine with red-hot points: they should look like they hurt.
+    for (let k = 0; k < 11; k++) {
+      const t = rr(r, 0.05, 0.98);
       const p = curve.getPointAt(t);
       const tan = curve.getTangentAt(t);
-      const side = new THREE.Vector3(rr(r, -1, 1), rr(r, -0.3, 0.6), rr(r, -1, 1)).normalize();
+      const side = new THREE.Vector3(rr(r, -1, 1), rr(r, -0.2, 0.8), rr(r, -1, 1)).normalize();
       side.addScaledVector(tan, -side.dot(tan)).normalize();
-      const cone = new THREE.ConeGeometry(0.02, 0.11, 4);
-      cone.translate(0, 0.055, 0);
-      // Mark thorn tips so they take the red.
-      cone.userData.tip = true;
-      cone.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), side));
-      cone.translate(p.x, p.y, p.z);
-      parts.push(cone);
+      const len = rr(r, 0.12, 0.19);
+      const cone = new THREE.ConeGeometry(0.028, len, 4);
+      cone.translate(0, len / 2, 0);
+      const m = new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromUnitVectors(up, side), new THREE.Vector3(1, 1, 1));
+      parts.push({
+        g: cone,
+        c: (q) => (q.y > len * 0.62 ? tip : stem),
+        hot: (q) => Math.max(0, (q.y / len - 0.68) / 0.32),
+        m,
+      });
     }
-    for (let k = 0; k < 2; k++) {
-      const p = curve.getPointAt(rr(r, 0.3, 1));
-      berries.push(p.add(new THREE.Vector3(rr(r, -0.05, 0.05), 0.03, rr(r, -0.05, 0.05))));
-    }
+    const p = curve.getPointAt(rr(r, 0.4, 1));
+    berries.push(p.add(new THREE.Vector3(rr(r, -0.05, 0.05), 0.03, rr(r, -0.05, 0.05))));
   }
-  const geos = parts.map((g) => {
-    const out = g.index ? g.toNonIndexed() : g;
-    out.userData.tip = g.userData.tip;
-    return out;
-  });
-  for (const g of geos) {
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
-    const pos = g.attributes.position;
-    const cols = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const c = g.userData.tip ? tip : stem.clone().multiplyScalar(0.8 + pos.getY(i) * 0.4);
-      cols[i * 3] = c.r;
-      cols[i * 3 + 1] = c.g;
-      cols[i * 3 + 2] = c.b;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  }
-  const geo = mergeNonIndexed(geos);
-  for (const g of geos) g.dispose();
-  for (const g of parts) g.dispose();
+  const geo = hotGeometry(parts);
+  for (const p of parts) p.g.dispose();
   return { geo, berries };
+}
+
+/** An escape wheel outline: hooked, saw-like teeth and round lightening holes, in the xy plane. */
+function cogShape(teeth: number, r0: number, r1: number, hub: number): THREE.Shape {
+  const s = new THREE.Shape();
+  const w = (Math.PI * 2) / teeth;
+  for (let i = 0; i < teeth; i++) {
+    const a = i * w;
+    // Steep leading face up to a narrow flat tip, then a long slope back to the root.
+    const pts: [number, number][] = [
+      [a, r0],
+      [a + w * 0.12, r1],
+      [a + w * 0.2, r1 * 0.985],
+      [a + w * 0.7, r0 * 1.04],
+    ];
+    for (const [ang, rad] of pts) {
+      if (i === 0 && ang === a) s.moveTo(Math.cos(ang) * rad, Math.sin(ang) * rad);
+      else s.lineTo(Math.cos(ang) * rad, Math.sin(ang) * rad);
+    }
+  }
+  s.closePath();
+  const holes = 5;
+  const hr = (r0 - hub) * 0.4;
+  const hc = (r0 + hub) / 2;
+  for (let i = 0; i < holes; i++) {
+    const a = (i / holes) * Math.PI * 2 + 0.3;
+    const h = new THREE.Path();
+    h.absarc(Math.cos(a) * hc, Math.sin(a) * hc, hr, 0, Math.PI * 2, true);
+    s.holes.push(h);
+  }
+  return s;
+}
+
+/**
+ * Clockwork hazards for the clock movement: spiked brass cogs turning half
+ * sunk into the floor, with glowing hot teeth and a hot hub, and a couple of
+ * fixed gear-tooth spikes between them.
+ */
+function cogCluster(seed: number, brass: THREE.Color, iron: THREE.Color, variant: number): THREE.BufferGeometry {
+  const r = rng(seed);
+  const body = shade(brass, 0.42, 0.8);
+  const parts: HotPart[] = [];
+  const cog = (cx: number, cy: number, cz: number, teeth: number, r1: number, speed: number) => {
+    const r0 = r1 * 0.7;
+    const hub = r1 * 0.26;
+    const t = 0.09;
+    const g = new THREE.ExtrudeGeometry(cogShape(teeth, r0, r1, hub), {
+      depth: t,
+      bevelEnabled: true,
+      bevelThickness: 0.012,
+      bevelSize: 0.01,
+      bevelSegments: 1,
+      curveSegments: 2,
+    });
+    g.translate(cx, cy, cz - t / 2);
+    parts.push({
+      g,
+      c: (p) => (Math.hypot(p.x - cx, p.y - cy) > r0 * 1.02 ? brass : body),
+      hot: (p) => {
+        const d = Math.hypot(p.x - cx, p.y - cy);
+        return Math.max(0, Math.min(1, ((d - r0) / (r1 - r0) - 0.55) / 0.45));
+      },
+      spin: [cx, cy, speed, r() * 6.28],
+    });
+    // The hub: an iron boss with a hot core, turning with the cog.
+    const boss = new THREE.CylinderGeometry(hub, hub, t + 0.07, 10);
+    boss.rotateX(Math.PI / 2);
+    boss.translate(cx, cy, cz);
+    parts.push({ g: boss, c: shade(brass, 1.25), spin: [cx, cy, speed, 0] });
+    const core = new THREE.CylinderGeometry(hub * 0.32, hub * 0.32, t + 0.1, 8);
+    core.rotateX(Math.PI / 2);
+    core.translate(cx, cy, cz);
+    parts.push({ g: core, c: col('#ff9a3a'), hot: () => 1, spin: [cx, cy, speed, 0] });
+  };
+  const spike = (x: number, z: number, h: number) => {
+    // A square gear-tooth spike on a little iron foot.
+    const g = new THREE.ConeGeometry(0.075, h, 4);
+    g.rotateY(Math.PI / 4);
+    g.translate(x, h / 2 + 0.04, z);
+    parts.push({ g, c: (p) => (p.y > h * 0.7 ? col('#ffb15a') : brass), hot: (p) => Math.max(0, ((p.y - 0.04) / h - 0.7) / 0.3) });
+    const foot = new THREE.BoxGeometry(0.2, 0.05, 0.2);
+    foot.translate(x, 0.025, z);
+    parts.push({ g: foot, c: iron });
+  };
+  const speed = rr(r, 0.9, 1.4);
+  if (variant === 0) {
+    cog(0.5, 0.32, 0.5, 14, 0.46, speed);
+    spike(0.18, 0.12, 0.34);
+    spike(0.82, 0.88, 0.3);
+  } else if (variant === 1) {
+    cog(0.5, 0.3, 0.32, 14, 0.44, speed);
+    cog(0.5, 0.26, 0.76, 10, 0.3, -speed * 1.45);
+  } else {
+    cog(0.5, 0.36, 0.62, 16, 0.48, speed * 0.8);
+    spike(0.2, 0.16, 0.38);
+    spike(0.5, 0.14, 0.3);
+    spike(0.8, 0.16, 0.38);
+  }
+  const geo = hotGeometry(parts);
+  for (const p of parts) p.g.dispose();
+  return geo;
 }
 
 export class Thorns {
   readonly group = new THREE.Group();
-  berryMat: THREE.MeshStandardMaterial | null = null;
+  private berryMat: THREE.MeshStandardMaterial | null = null;
+  private hot: { value: THREE.Color } | null = null;
+  private hotBase = new THREE.Color();
+  private clockwork = false;
 
   build(lv: Level, pal: Palette, cells: number[], bag: Bag): void {
     this.group.clear();
     this.berryMat = null;
+    this.hot = null;
     if (!cells.length) return;
     const look = pal.mats.thorn;
-    const stem = col(look.color);
-    const tip = shade(look.color2, 0.85);
-    const variants = [0, 1, 2].map((i) => bramble(900 + i * 31, stem, tip));
+    this.clockwork = pal.id === 'clock';
+    const r = rng(lv.w * 3 + cells.length);
+    let variants: { geo: THREE.BufferGeometry; berries: THREE.Vector3[] }[];
+    let mat: THREE.MeshStandardMaterial;
+    if (this.clockwork) {
+      const brass = shade(pal.mats.brass.color, 0.62, 1.05);
+      const iron = col('#2a221d');
+      variants = [0, 1, 2].map((i) => ({ geo: cogCluster(700 + i * 17, brass, iron, i), berries: [] }));
+      const hm = hotMaterial(bag, 'cog', { roughness: 0.42, metalness: 0.85 });
+      mat = hm.m;
+      this.hot = hm.u;
+      this.hotBase.copy(col('#ff5a10')).multiplyScalar(1.5);
+    } else {
+      const stem = col(look.color);
+      const tip = shade(look.color2, 1.1);
+      variants = [0, 1, 2].map((i) => bramble(900 + i * 31, stem, tip));
+      const hm = hotMaterial(bag, 'thorn', { roughness: 0.55, metalness: 0.1 });
+      mat = hm.m;
+      this.hot = hm.u;
+      this.hotBase.copy(col(look.emissive ?? '#c4283a')).multiplyScalar(1.6);
+    }
     for (const v of variants) bag.add(v.geo);
-    const mat = bag.add(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.1 }));
-    patch(mat, { cutout: true, hfog: true, key: 'thorn' });
-    const berryMat = bag.add(
-      new THREE.MeshStandardMaterial({
-        color: col(look.color2),
-        emissive: col(look.emissive ?? '#c4283a'),
-        emissiveIntensity: 2.2,
-        roughness: 0.25,
-      }),
-    );
-    this.berryMat = berryMat;
-    const berryGeo = bag.add(new THREE.SphereGeometry(0.045, 8, 6));
     const lists: THREE.Matrix4[][] = [[], [], []];
     const berries: THREE.Matrix4[] = [];
-    const r = rng(lv.w * 3 + cells.length);
     for (let i = 0; i < cells.length; i += 3) {
       const x = cells[i];
       const y = cells[i + 1];
       const z = cells[i + 2];
       const vi = Math.floor(hash3(x, y, z + 11) * 3) % 3;
-      const rot = Math.floor(r() * 4) * (Math.PI / 2) + rr(r, -0.3, 0.3);
-      const s = rr(r, 0.95, 1.15);
-      const m = new THREE.Matrix4()
-        .makeTranslation(x + 0.5, y, z + 0.5)
-        .multiply(new THREE.Matrix4().makeRotationY(rot))
-        .multiply(new THREE.Matrix4().makeScale(s, rr(r, 0.9, 1.1), s))
-        .multiply(new THREE.Matrix4().makeTranslation(-0.5, 0, -0.5));
+      let m: THREE.Matrix4;
+      if (this.clockwork) {
+        // Cogs keep facing the audience so the gear trains read; only their size varies.
+        const s = rr(r, 0.94, 1.04);
+        m = new THREE.Matrix4().makeTranslation(x, y, z).multiply(new THREE.Matrix4().makeScale(1, s, 1));
+      } else {
+        const rot = Math.floor(r() * 4) * (Math.PI / 2) + rr(r, -0.3, 0.3);
+        const s = rr(r, 0.95, 1.15);
+        m = new THREE.Matrix4()
+          .makeTranslation(x + 0.5, y, z + 0.5)
+          .multiply(new THREE.Matrix4().makeRotationY(rot))
+          .multiply(new THREE.Matrix4().makeScale(s, rr(r, 0.9, 1.1), s))
+          .multiply(new THREE.Matrix4().makeTranslation(-0.5, 0, -0.5));
+      }
       lists[vi].push(m);
       for (const b of variants[vi].berries) {
         const bp = b.clone().applyMatrix4(m);
-        berries.push(new THREE.Matrix4().makeTranslation(bp.x, bp.y, bp.z).multiply(new THREE.Matrix4().makeScale(...([1, 1, 1].map(() => rr(r, 0.8, 1.2)) as [number, number, number]))));
+        const bs = rr(r, 0.8, 1.2);
+        berries.push(new THREE.Matrix4().makeTranslation(bp.x, bp.y, bp.z).multiply(new THREE.Matrix4().makeScale(bs, bs, bs)));
       }
     }
     lists.forEach((list, i) => {
@@ -432,7 +636,16 @@ export class Thorns {
       this.group.add(im);
     });
     if (berries.length) {
-      const im = new THREE.InstancedMesh(berryGeo, berryMat, berries.length);
+      const berryMat = bag.add(
+        new THREE.MeshStandardMaterial({
+          color: col(look.color2),
+          emissive: col(look.emissive ?? '#c4283a'),
+          emissiveIntensity: 2.2,
+          roughness: 0.25,
+        }),
+      );
+      this.berryMat = berryMat;
+      const im = new THREE.InstancedMesh(bag.add(new THREE.SphereGeometry(0.04, 8, 6)), berryMat, berries.length);
       berries.forEach((mm, k) => im.setMatrixAt(k, mm));
       im.computeBoundingSphere();
       this.group.add(im);
@@ -441,5 +654,10 @@ export class Thorns {
 
   update(time: number): void {
     if (this.berryMat) this.berryMat.emissiveIntensity = 1.8 + Math.sin(time * 2.2) * 0.6;
+    if (this.hot) {
+      // Brambles throb slowly; clockwork flickers like a forge.
+      const k = this.clockwork ? 0.85 + 0.1 * Math.sin(time * 7.3) + 0.06 * Math.sin(time * 17.1) : 0.8 + 0.25 * Math.sin(time * 2.2);
+      this.hot.value.copy(this.hotBase).multiplyScalar(k);
+    }
   }
 }

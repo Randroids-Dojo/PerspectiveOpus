@@ -4,7 +4,8 @@ import { clamp } from '../core/math';
 import type { Palette } from '../game/palettes';
 import type { Game } from '../game/sim';
 import type { FrameInfo } from '../render/types';
-import { groupColor, type Halos } from './effects';
+import type { Halos } from './effects';
+import { buildGate, buildKey, updateGate, updateKey, type GateObj, type KeyObj } from './gates';
 import type { PropMaterials } from './props';
 import { patch } from './shared';
 import { Bag, GeoBucket, PRIM, col, mat, shade, type Rng, rng } from './util';
@@ -79,27 +80,6 @@ void main() {
 }
 `;
 
-const GHOST_FRAG = /* glsl */ `
-uniform float uOpacity;
-uniform vec3 uColor;
-varying vec3 vW;
-void main() {
-  float d = fract((vW.x + vW.z) * 2.5 + vW.y * 0.0);
-  if (d > 0.5) discard;
-  gl_FragColor = vec4(uColor * uOpacity, 1.0);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}
-`;
-
-const GHOST_VERT = /* glsl */ `
-varying vec3 vW;
-void main() {
-  vW = position;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
 interface NoteObj {
   mesh: THREE.Mesh;
   i: number;
@@ -116,19 +96,6 @@ interface DrumObj {
   head: THREE.Mesh;
   u: { uHit: { value: number } };
   i: number;
-}
-interface KeyObj {
-  plate: THREE.Object3D;
-  inlay: THREE.MeshBasicMaterial;
-  base: THREE.Color;
-  i: number;
-}
-interface GateObj {
-  rails: THREE.Mesh[];
-  ghost: THREE.Mesh[];
-  ghostMat: THREE.ShaderMaterial;
-  i: number;
-  axis: 'x' | 'z';
 }
 interface PlatObj {
   group: THREE.Group;
@@ -394,102 +361,16 @@ export class Entities {
       this.drums.push({ group: g, head, u, i });
     });
 
-    // Piano keys set into the floor.
-    const ivory = col('#f3ecdc');
-    const ebony = col('#1a1418');
+    // Piano keys set into the floor, and the staff gates they raise.
     lv.keys.forEach((k, i) => {
-      const g = new THREE.Group();
-      g.position.set(k.pos.x + k.width / 2, k.pos.y, k.pos.z + 0.5);
-      const fr = new GeoBucket();
-      fr.add(PRIM.box, mat(0, -0.005, -0.47, 0, 0, 0, k.width + 0.02, 0.04, 0.06), ebony);
-      fr.add(PRIM.box, mat(0, -0.005, 0.47, 0, 0, 0, k.width + 0.02, 0.04, 0.06), ebony);
-      fr.add(PRIM.box, mat(-k.width / 2 + 0.02, -0.005, 0, 0, 0, 0, 0.06, 0.04, 1), ebony);
-      fr.add(PRIM.box, mat(k.width / 2 - 0.02, -0.005, 0, 0, 0, 0, 0.06, 0.04, 1), ebony);
-      const fg = fr.build();
-      if (fg) g.add(new THREE.Mesh(bag.add(fg), m.gloss));
-      const plate = new THREE.Group();
-      const pg = bag.add(new RoundedBoxGeometry(k.width - 0.12, 0.12, 0.86, 2, 0.035));
-      const pb = new GeoBucket();
-      pb.add(pg, mat(0, 0, 0), ivory);
-      const pgeo = pb.build();
-      if (pgeo) {
-        const pm = new THREE.Mesh(bag.add(pgeo), m.gloss);
-        pm.castShadow = pm.receiveShadow = true;
-        plate.add(pm);
-      }
-      const gc = groupColor(k.group);
-      const inlay = bag.add(new THREE.MeshBasicMaterial({ color: gc.clone().multiplyScalar(0.6) }));
-      const im = new THREE.Mesh(PRIM.box, inlay);
-      im.scale.set(Math.max(0.2, k.width - 0.36), 0.02, 0.1);
-      im.position.set(0, 0.061, 0.3);
-      plate.add(im);
-      plate.position.y = -0.0;
-      g.add(plate);
-      this.group.add(g);
-      this.keys.push({ plate, inlay, base: gc, i });
+      const { group, obj } = buildKey(k, i, bag, m.gloss);
+      this.group.add(group);
+      this.keys.push(obj);
     });
-
-    // Gates: five golden staff rails.
     lv.gates.forEach((gd, i) => {
-      const sx = gd.max.x - gd.min.x;
-      const sy = gd.max.y - gd.min.y;
-      const sz = gd.max.z - gd.min.z;
-      const axis: 'x' | 'z' = sz >= sx ? 'z' : 'x';
-      const len = axis === 'z' ? sz : sx;
-      const cross = axis === 'z' ? sx : sz;
-      const g = new THREE.Group();
-      g.position.set((gd.min.x + gd.max.x) / 2, gd.min.y, (gd.min.z + gd.max.z) / 2);
-      // Five flat gold slats spanning the gate's thickness: staff lines from the side, a fence from above.
-      const slatW = Math.max(0.14, Math.min(0.42, cross - 0.3));
-      const railGeo = bag.add(
-        axis === 'z' ? new RoundedBoxGeometry(slatW, 0.07, len - 0.08, 2, 0.025) : new RoundedBoxGeometry(len - 0.08, 0.07, slatW, 2, 0.025),
-      );
-      const rails: THREE.Mesh[] = [];
-      const ghost: THREE.Mesh[] = [];
-      const ghostMat = bag.add(
-        new THREE.ShaderMaterial({
-          vertexShader: GHOST_VERT,
-          fragmentShader: GHOST_FRAG,
-          uniforms: { uOpacity: { value: 0.5 }, uColor: { value: this.glowCol.clone().multiplyScalar(1.2) } },
-          transparent: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-      for (let k = 0; k < 5; k++) {
-        const y = sy * ((k + 0.5) / 5);
-        const rm = new THREE.Mesh(railGeo, m.goldDim);
-        rm.position.y = y;
-        rm.castShadow = true;
-        g.add(rm);
-        rails.push(rm);
-        const gm = new THREE.Mesh(railGeo, ghostMat);
-        gm.position.y = y;
-        gm.scale.set(0.6, 0.5, 0.6);
-        g.add(gm);
-        ghost.push(gm);
-      }
-      // End posts in the group colour.
-      const pb = new GeoBucket();
-      const gc = groupColor(gd.group);
-      // Bar lines: posts at both ends and every couple of cells between.
-      const bars = Math.max(1, Math.round(len / 2.2));
-      for (let k = 0; k <= bars; k++) {
-        const off = -len / 2 + 0.06 + (k / bars) * (len - 0.12);
-        const end = k === 0 || k === bars;
-        const px = axis === 'x' ? off : 0;
-        const pz = axis === 'z' ? off : 0;
-        pb.add(PRIM.cyl, mat(px, sy / 2, pz, 0, 0, 0, end ? 0.1 : 0.05, sy + (end ? 0.1 : 0), end ? 0.1 : 0.05), shade(brass, end ? 0.85 : 1));
-        if (end) pb.add(PRIM.sphere, mat(px, sy + 0.1, pz, 0, 0, 0, 0.16), gc);
-      }
-      const pg = pb.build();
-      if (pg) {
-        const pm = new THREE.Mesh(bag.add(pg), m.metal);
-        pm.castShadow = true;
-        g.add(pm);
-      }
-      this.group.add(g);
-      this.gates.push({ rails, ghost, ghostMat, i, axis });
+      const { group, obj } = buildGate(gd, i, this.glowCol, bag);
+      this.group.add(group);
+      this.gates.push(obj);
     });
 
     // Moving platforms: floating music stands.
@@ -523,6 +404,16 @@ export class Entities {
         const a = (k / 3) * Math.PI * 2;
         mt.add(PRIM.cyl, mat(sx / 2 + Math.cos(a) * 0.12, sy - slab - poleLen - 0.08, sz / 2 + Math.sin(a) * 0.12, Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9, 0.025, 0.3, 0.025), shade(brass, 0.8));
       }
+      // A lit trim round the top and bolts at the corners, so a stand that sits
+      // flush with the floor still reads as machinery that moves.
+      const gl = new GeoBucket();
+      const trim = this.glowCol.clone().multiplyScalar(0.4);
+      for (const zz of [0.06, sz - 0.06]) gl.add(PRIM.box, mat(sx / 2, sy + 0.003, zz, 0, 0, 0, sx - 0.16, 0.012, 0.03), trim);
+      for (const xx of [0.06, sx - 0.06]) gl.add(PRIM.box, mat(xx, sy + 0.003, sz / 2, 0, 0, 0, 0.03, 0.012, sz - 0.16), trim);
+      for (const xx of [0.14, sx - 0.14]) for (const zz of [0.14, sz - 0.14]) mt.add(PRIM.sphereLo, mat(xx, sy, zz, 0, 0, 0, 0.09, 0.05, 0.09), shade(brass, 1.1));
+      if (p.mat === 'brass' && sx > 1.5 && sz > 1.5) b.add(PRIM.box, mat(sx / 2, sy + 0.002, sz / 2, 0, 0, 0, sx - 0.5, 0.01, sz - 0.5), shade(base, 0.55));
+      const glg = gl.build();
+      if (glg) g.add(new THREE.Mesh(bag.add(glg), m.glow));
       const bg = b.build();
       const mg = mt.build();
       if (bg) {
@@ -636,21 +527,14 @@ export class Entities {
 
     for (const k of this.keys) {
       const v = game.keyVis[k.i];
-      k.plate.position.y = 0.04 - v * 0.085;
-      const on = game.groups[lv.keys[k.i].group];
-      k.inlay.color.copy(k.base).multiplyScalar(on ? 2.2 : 0.55);
+      const b = updateKey(k, v, game.groups[lv.keys[k.i].group]);
+      halos.add(k.centre.x, k.centre.y, k.centre.z, 1 + v * 0.5, k.base, 0.08 + b * 0.1);
     }
 
     for (const g of this.gates) {
       const v = game.gateVis[g.i];
-      const solid = v > 0.03;
-      for (const r of g.rails) {
-        r.visible = solid;
-        const th = 0.25 + 0.75 * v;
-        r.scale.set(g.axis === 'z' ? th : 1, th, g.axis === 'z' ? 1 : th);
-      }
-      g.ghostMat.uniforms.uOpacity.value = (1 - v) * 0.7;
-      for (const gm of g.ghost) gm.visible = v < 0.97;
+      updateGate(g, v, clock);
+      if (v > 0.05) for (const p of g.glows) halos.add(p.x, p.y, p.z, 1.1, gold, 0.22 * v);
     }
 
     for (const p of this.plats) {
