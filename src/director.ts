@@ -15,6 +15,7 @@ import {
   pauseScreen,
   programmeScreen,
   settingsScreen,
+  nextMovement,
   titleScreen,
   type Screen,
 } from './ui/screens';
@@ -268,6 +269,7 @@ export class Director {
     this.refreshTouch();
     this.app.audio.ui('complete');
     const last = index === LEVELS.length - 1;
+    this.app.audio.preload?.(last ? 'ending' : SONGS[LEVELS[index + 1].info.id]);
     this.push(
       completeScreen({
         index,
@@ -439,6 +441,11 @@ export class Director {
     if (this.state === 'ending') return audio.playSong('ending');
     const id = this.app.game?.level.info.id ?? 'title';
     audio.playSong(SONGS[id] ?? 'title');
+    // From the title, the next thing played is the movement Begin or Continue leads to.
+    if (this.state === 'title') {
+      const next = nextMovement(this.save);
+      audio.preload?.(SONGS[LEVELS[Math.min(next, LEVELS.length - 1)].info.id]);
+    }
   }
 
   /** A newer version is live: offer a refresh without interrupting play. */
